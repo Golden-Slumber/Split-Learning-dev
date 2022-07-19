@@ -3,10 +3,15 @@ from torch import nn
 from torch.utils.data import DataLoader
 from torchvision import datasets
 from torchvision.transforms import ToTensor
+import matplotlib
+import matplotlib.pyplot as plt
+from matplotlib.ticker import PercentFormatter
 import numba
 import sys
+from tqdm import tqdm
+from constants import *
 
-home_dir = '../'
+home_dir = './'
 sys.path.append(home_dir)
 
 
@@ -52,6 +57,37 @@ def accelerate_hessian(p, x_mat, g_vectors, eye_mat, s, num_class, d):
             hessian_inv = numpy.linalg.inv(hessian)
         p_vectors[i] = numpy.dot(hessian_inv, g_vectors[i])
     return p_vectors
+
+
+def conjugate_solver(A, b, lam, tol=1e-16, max_iter=1000):
+    """
+    conjugate gradient method
+    solve (A^T * A + lam * I) * w = b.
+    """
+    d = A.shape[1]
+    b = b.reshape(d, 1)
+    tol = tol * numpy.linalg.norm(b)
+    w = numpy.zeros((d, 1))
+    A_w = numpy.dot(A.T, numpy.dot(A, w))
+    r = numpy.subtract(b, numpy.add(lam * w, A_w))
+    p = numpy.copy(r)
+    rs_old = numpy.linalg.norm(r) ** 2
+
+    for i in range(max_iter):
+        A_p = numpy.dot(A.T, numpy.dot(A, p))
+        reg_A_p = lam * p + A_p
+        alpha = numpy.sum(rs_old / numpy.dot(p.T, reg_A_p))
+        w = numpy.add(w, alpha * p)
+        r = numpy.subtract(r, alpha * reg_A_p)
+        rs_new = numpy.linalg.norm(r) ** 2
+        if numpy.sqrt(rs_new) < tol:
+            # print('converged! res = ' + str(rs_new))
+            break
+        p_vec = numpy.multiply(rs_new / rs_old, p)
+        p = numpy.add(r, p_vec)
+        rs_old = rs_new
+
+    return w
 
 
 class CrossEntropySolver:
@@ -135,7 +171,7 @@ class CrossEntropySolver:
         #                            self.y_vec, self.n, self.num_class, self.d)
         return grad + numpy.multiply(gamma, w_vec)
 
-    def gradient_descent(self, gamma, max_iter=50, tol=1e-15):
+    def gradient_descent(self, gamma, max_iter=500, tol=1e-15):
         """
         gradient descent solver for the minimization of cross entropy loss function
         """
@@ -143,7 +179,7 @@ class CrossEntropySolver:
         eta_list = 1 / (2 ** numpy.arange(0, 10))
         args = (gamma,)
 
-        for t in range(max_iter):
+        for t in tqdm(range(max_iter)):
             grad = self.grad(w_vec, args)
             grad_norm = numpy.linalg.norm(grad)
             obj = self.obj_fun(w_vec, *args)
@@ -178,7 +214,7 @@ class CrossEntropySolver:
         eye_mat = gamma * numpy.eye(self.d)
         args = (gamma,)
 
-        for t in range(max_iter):
+        for t in tqdm(range(max_iter)):
             # print('calculate grad:')
             grad = self.grad(w_vec, *args)
             grad_norm = numpy.linalg.norm(grad)
@@ -228,6 +264,57 @@ class CrossEntropySolver:
 
         return w_vec
 
+    def conjugate_newton(self, gamma, max_iter=50, tol=1e-15):
+        """
+        newton solver (use conjugate gradient method to compute a approximate direction vector) for the minimization of cross entropy loss function
+        """
+        w_vec = numpy.random.randn(self.num_class * self.d, 1) * 0.01
+        eta_list = 1 / (2 ** numpy.arange(0, 10))
+        args = (gamma,)
+
+        for t in tqdm(range(max_iter)):
+            grad = self.grad(w_vec, *args)
+            grad_norm = numpy.linalg.norm(grad)
+            obj = self.obj_fun(w_vec, *args)
+            acc = self.predication(w_vec)
+            print('Cross Entropy Solver: Iter ' + str(t) + ', L2 norm of gradient = ' + str(
+                grad_norm) + ', objective value = ' + str(obj) + ', predication = ' + str(acc))
+            if grad_norm < tol:
+                print('The change of objective value is smaller than ' + str(tol))
+                break
+
+            w_vectors = numpy.split(w_vec, self.num_class, axis=0)
+            w_x = []
+            for i in range(self.num_class):
+                w_x.append(numpy.dot(self.x_mat, w_vectors[i].reshape(self.d, 1)))
+            w_x = numpy.concatenate(w_x, axis=1)
+
+            g_vectors = numpy.split(grad, self.num_class, axis=0)
+            p_vectors = numpy.zeros((self.num_class, self.d, 1))
+            p = stable_softmax(w_x)
+            for i in range(self.num_class):
+                p_i = numpy.mat(p.T[i]).reshape(self.n, 1)
+                p_i = p_i - numpy.power(p_i, 2)
+                sqrt_p_i = numpy.sqrt(p_i)
+                a_mat = numpy.multiply(sqrt_p_i, self.x_mat) / numpy.sqrt(self.n)
+                p_vectors[i] = conjugate_solver(a_mat, g_vectors[i], gamma, tol=tol, max_iter=100)
+            p_vec = numpy.reshape(p_vectors, (self.num_class * self.d, 1))
+
+            eta = 0
+            obj_val = self.obj_fun(w_vec, *args)
+            if grad_norm > tol:
+                pg = - 0.5 * numpy.sum(numpy.multiply(p_vec, grad))
+                for eta in eta_list:
+                    obj_val_new = self.obj_fun(w_vec - eta * p_vec, *args)
+                    if obj_val_new < obj_val + eta * pg:
+                        break
+            else:
+                eta = 0
+            print(eta)
+            w_vec = w_vec - eta * p_vec
+
+        return w_vec
+
 
 def normalization(x_train, x_test):
     """
@@ -259,12 +346,12 @@ def normal_inference(w_vec, num_class, dim, x_test, y_test):
     return cnt / tot
 
 
-def split_inference(w_vec_by_devices, num_class, n_devices, x_test, y_test):
+def split_inference(w_vec_by_devices, num_class, n_devices, dim, x_test, y_test):
     w_x_list = []
     for i in range(num_class):
         w_x = numpy.zeros((x_test.shape[0], 1))
         for j in range(n_devices):
-            w_x = numpy.add(w_x, numpy.dot(x_test[:, j * 49: (j + 1) * 49], w_vec_by_devices[j][i]))
+            w_x = numpy.add(w_x, numpy.dot(x_test[:, j * dim: (j + 1) * dim], w_vec_by_devices[j][i]))
         w_x_list.append(w_x)
     w_vec = numpy.concatenate(w_x_list, axis=1)
     p = stable_softmax(w_vec)
@@ -278,14 +365,14 @@ def split_inference(w_vec_by_devices, num_class, n_devices, x_test, y_test):
     return cnt / tot
 
 
-def aircomp_based_split_inference(w_vec_by_devices, num_class, n_devices, tau2, x_test, y_test):
+def aircomp_based_split_inference(w_vec_by_devices, num_class, n_devices, dim, tau2, x_test, y_test):
     w_x_list = []
     for i in range(num_class):
         # H_square = 0.5 * numpy.random.exponential(0.5, [x_test.shape[0], 1])
         noise = numpy.random.normal(0, tau2, (x_test.shape[0], 1))
         w_x = numpy.zeros((x_test.shape[0], 1))
         for j in range(n_devices):
-            transmit_signal = numpy.dot(x_test[:, j * 49: (j + 1) * 49], w_vec_by_devices[j][i])
+            transmit_signal = numpy.dot(x_test[:, j * dim: (j + 1) * dim], w_vec_by_devices[j][i])
             w_x = numpy.add(w_x, transmit_signal)
         received_signal = numpy.add(w_x, noise)
         w_x_list.append(received_signal)
@@ -301,14 +388,49 @@ def aircomp_based_split_inference(w_vec_by_devices, num_class, n_devices, tau2, 
     return cnt / tot
 
 
+def model_training(data_name, gamma_list, train_X, train_y, num_class, test_X, test_y):
+    solver = CrossEntropySolver(train_X, train_y, num_class, test_X, test_y)
+    for gamma in gamma_list:
+        w_opt = solver.conjugate_newton(gamma)
+        out_file_name = home_dir + 'Resources/cross_entropy_solver_' + data_name + '_w_opt_gamma' + str(gamma) + '.npz'
+        numpy.savez(out_file_name, w_opt=w_opt)
+
+
+def plot_result(res, tau2list, data_name, legends):
+    fig = plt.figure(figsize=(10, 8))
+    matplotlib.rcParams['mathtext.fontset'] = 'stix'
+    matplotlib.rcParams['font.family'] = 'STIXGeneral'
+
+    line_list = []
+    for i in range(len(legends)):
+        line, = plt.plot(tau2list, numpy.median(res[i], axis=0), color=color_list[i], linestyle='-',
+                         marker=marker_list[i],
+                         markerfacecolor='none', ms=7, markeredgewidth=2.5, linewidth=2.5, markevery=1)
+        line_list.append(line)
+    plt.legend(line_list, legends, fontsize=20)
+    plt.xlabel(r"$\sigma^{2}$", fontsize=20)
+    plt.ylabel('Inference Accuracy', fontsize=20)
+    plt.gca().yaxis.set_major_formatter(PercentFormatter(1))
+    plt.tight_layout()
+    plt.grid()
+
+    image_name = home_dir + 'Outputs/split_inference_linear_model_' + data_name + '.pdf'
+    fig.savefig(image_name, format='pdf', dpi=1200)
+    plt.show()
+
+
 if __name__ == '__main__':
-    print('PyCharm')
-    training_data = datasets.FashionMNIST(root="../Resources", train=True, download=True, transform=ToTensor())
-    test_data = datasets.FashionMNIST(root="../Resources", train=False, download=True, transform=ToTensor())
+    # print('PyCharm')
+    training_data = datasets.FashionMNIST(root="./Resources", train=True, download=True, transform=ToTensor())
+    test_data = datasets.FashionMNIST(root="./Resources", train=False, download=True, transform=ToTensor())
+    # training_data = datasets.cifar.CIFAR10(root="./Resources", train=True, download=True, transform=ToTensor())
+    # test_data = datasets.cifar.CIFAR10(root="./Resources", train=False, download=True, transform=ToTensor())
+    print(training_data)
+    print(test_data)
     # print(training_data)
-    # print(test_data)
 
     train_data_loader = DataLoader(training_data, batch_size=60000)
+    # train_data_loader = DataLoader(training_data, batch_size=50000)
     test_data_loader = DataLoader(test_data, batch_size=10000)
     train_X, train_y = next(iter(train_data_loader))
     train_X = train_X.numpy()
@@ -320,6 +442,7 @@ if __name__ == '__main__':
     print(test_y.shape)
 
     train_X = train_X.reshape(60000, 28 * 28)
+    # train_X = train_X.reshape(50000, 3 * 32 * 32)
     train_y = numpy.array(train_y).reshape(60000, 1)
     test_X = test_X.reshape(10000, 28 * 28)
     test_y = numpy.array(test_y).reshape(10000, 1)
@@ -327,6 +450,9 @@ if __name__ == '__main__':
     train_X, test_X = normalization(train_X, test_X)
 
     num_class = numpy.max(train_y) + 1
+    print(num_class)
+    gamma_list = [1e-4, 1e-2]
+    # model_training('cifar10', gamma_list, train_X, train_y, num_class, test_X, test_y)
     # solver = CrossEntropySolver(train_X, train_y, num_class, test_X, test_y)
     # gamma_list = [1e-8, 1e-6, 1e-4]
     # for gamma in gamma_list:
@@ -336,28 +462,46 @@ if __name__ == '__main__':
 
     gamma = 1e-4
     n_devices = 16
-    dim = 28 * 28
+    dim = 49
+    entire_dim = 28 * 28
+    # n_devices = 16
+    # entire_dim = 3 * 32 * 32
+    # dim = 3 * 64
+    data_name = 'fashionMNIST'
+    repeat = 5
     out_file_name = home_dir + 'Resources/cross_entropy_solver_w_opt_gamma_' + str(gamma) + '.npz'
+    # out_file_name = home_dir + 'Resources/cross_entropy_solver_' + data_name + '_w_opt_gamma' + str(gamma) + '.npz'
     npz_file = numpy.load(out_file_name, allow_pickle=True)
     w_opt = npz_file['w_opt']
-
-    print('normal inference: ', normal_inference(w_opt, num_class, dim, test_X, test_y))
 
     # print(w_opt.shape)
     w_vectors = numpy.split(w_opt, num_class * n_devices, axis=0)
     # print(w_vectors)
     w_vectors_by_devices = []
-    # for i in range(n_devices):
-    #     w_vectors_by_devices.append([])
     for i in range(n_devices):
         w_list = []
         for j in range(num_class):
             w_list.append(w_vectors[j * n_devices + i])
         w_vectors_by_devices.append(w_list.copy())
-    # x_test_by_devices = test_X.reshape((10000, 49, 16))
 
-    print('split inference: ', split_inference(w_vectors_by_devices, num_class, n_devices, test_X, test_y))
+    tau2list = []
+    for i in range(20):
+        tau2list.append(0.1 * (i + 1))
 
-    tau2 = 4
-    print('aircomp-based split inference: ',
-          aircomp_based_split_inference(w_vectors_by_devices, num_class, n_devices, tau2, test_X, test_y))
+    inference_res = numpy.zeros((3, repeat, len(tau2list)))
+    legends = ['Scheme 1', 'Scheme 2', 'Scheme 3']
+    for r in range(repeat):
+        for i in tqdm(range(len(tau2list))):
+            inference_res[0, r, i] = normal_inference(w_opt, num_class, entire_dim, test_X, test_y)
+            inference_res[1, r, i] = split_inference(w_vectors_by_devices, num_class, n_devices, dim, test_X, test_y)
+            inference_res[2, r, i] = aircomp_based_split_inference(w_vectors_by_devices, num_class, n_devices, dim,
+                                                                   tau2list[i],
+                                                                   test_X, test_y)
+    plot_result(inference_res, tau2list, data_name, legends)
+
+    # print('normal inference: ', normal_inference(w_opt, num_class, dim, test_X, test_y))
+    #
+    # print('split inference: ', split_inference(w_vectors_by_devices, num_class, n_devices, test_X, test_y))
+    #
+    # print('aircomp-based split inference: ',
+    #       aircomp_based_split_inference(w_vectors_by_devices, num_class, n_devices, tau2list[i], test_X, test_y))

@@ -38,18 +38,29 @@ class Net(nn.Module):
 
 
 class WithoutDropoutNet(nn.Module):
-    def __init__(self):
+    def __init__(self, dataset=None):
         super(WithoutDropoutNet, self).__init__()
-        self.fc1 = nn.Linear(784, 392, bias=True)
-        self.fc2 = nn.Linear(392, 196, bias=True)
-        self.fc3 = nn.Linear(196, 98, bias=True)
-        self.fc4 = nn.Linear(98, 49, bias=True)
-        self.output = nn.Linear(49, 10, bias=True)
+        self.dataset = dataset
+        if dataset == 'FashionMNIST':
+            self.fc1 = nn.Linear(784, 392, bias=True)
+            self.fc2 = nn.Linear(392, 196, bias=True)
+            self.fc3 = nn.Linear(196, 98, bias=True)
+            self.fc4 = nn.Linear(98, 49, bias=True)
+            self.output = nn.Linear(49, 10, bias=True)
+        elif dataset == 'cifar10':
+            self.fc1 = nn.Linear(3072, 1536, bias=True)
+            self.fc2 = nn.Linear(1536, 768, bias=True)
+            self.fc3 = nn.Linear(768, 192, bias=True)
+            self.fc4 = nn.Linear(192, 48, bias=True)
+            self.output = nn.Linear(48, 10, bias=True)
         self.relu = nn.ReLU()
         self.softmax = nn.LogSoftmax(dim=1)
 
     def forward(self, x):
-        x = x.view(-1, 28 * 28)
+        if self.dataset == 'FashionMNIST':
+            x = x.view(-1, 28 * 28)
+        elif self.dataset == 'cifar10':
+            x = x.view(-1, 3 * 32 * 32)
         x = self.relu(self.fc1(x))
         x = self.relu(self.fc2(x))
         x = self.relu(self.fc3(x))
@@ -58,16 +69,25 @@ class WithoutDropoutNet(nn.Module):
 
 
 class ServerNet(nn.Module):
-    def __init__(self):
+    def __init__(self, dataset=None):
         super(ServerNet, self).__init__()
-        self.fc3 = nn.Linear(196, 98, bias=True)
-        self.fc4 = nn.Linear(98, 49, bias=True)
-        self.output = nn.Linear(49, 10, bias=True)
+        self.dataset = dataset
+        if dataset == 'FashionMNIST':
+            self.fc3 = nn.Linear(196, 98, bias=True)
+            self.fc4 = nn.Linear(98, 49, bias=True)
+            self.output = nn.Linear(49, 10, bias=True)
+        elif dataset == 'cifar10':
+            self.fc3 = nn.Linear(768, 192, bias=True)
+            self.fc4 = nn.Linear(192, 48, bias=True)
+            self.output = nn.Linear(48, 10, bias=True)
         self.relu = nn.ReLU()
         self.softmax = nn.LogSoftmax(dim=1)
 
     def forward(self, x):
-        x = x.view(-1, 196)
+        if self.dataset == 'FashionMNIST':
+            x = x.view(-1, 196)
+        elif self.dataset == 'cifar10':
+            x = x.view(-1, 768)
         x = self.relu(self.fc3(x))
         x = self.relu(self.fc4(x))
         return self.softmax(self.output(x))
@@ -88,20 +108,28 @@ class CustomDeviceNet(nn.Module):
 
 
 class CutLayer(nn.Module):
-    def __init__(self, tau2=0.0, device=None):
+    def __init__(self, tau2=0.0, device=None, dataset=None):
         super(CutLayer, self).__init__()
         self.tau2 = tau2
         self.device = device
-        self.fc2 = nn.Linear(392, 196)
+        self.dataset = dataset
+        if dataset == 'FashionMNIST':
+            self.fc2 = nn.Linear(392, 196)
+        elif dataset == 'cifar10':
+            self.fc2 = nn.Linear(1536, 768)
         self.relu = nn.ReLU()
 
     def forward(self, x):
-        x = x.view(-1, 392)
+        if self.dataset == 'FashionMNIST':
+            x = x.view(-1, 392)
+        elif self.dataset == 'cifar10':
+            x = x.view(-1, 1536)
         x = self.fc2(x)
         if self.tau2 != 0.0:
             noise = torch.normal(0, self.tau2, x.shape).to(self.device)
             x = x + noise
-            # print(noise)
+            print(noise)
+            print(torch.linalg.norm(noise))
         x = self.relu(x)
         return x
 
@@ -213,6 +241,37 @@ def FashionMNIST_training(args):
         torch.save(model.state_dict(), 'revised_without_dropout_fashionmnist_fc.pt')
 
 
+def cifar10_training(args):
+    use_cuda = not args.no_cuda and torch.cuda.is_available()
+    torch.manual_seed(args.seed)
+    device = torch.device("cuda" if use_cuda else "cpu")
+
+    kwargs = {'num_workers': 1, 'pin_memory': True} if use_cuda else {}
+    train_loader = DataLoader(datasets.CIFAR10(root='./Resources/', train=True, download=True,
+                                               transform=transforms.Compose([transforms.ToTensor(),
+                                                                             transforms.Normalize((0.5, 0.5, 0.5),
+                                                                                                  (0.5, 0.5, 0.5))])),
+                              batch_size=args.batch_size, shuffle=True, **kwargs)
+    test_loader = DataLoader(datasets.CIFAR10(root='./Resources/', train=False,
+                                              transform=transforms.Compose(
+                                                  [transforms.ToTensor(), transforms.Normalize((0.5, 0.5, 0.5),
+                                                                                               (0.5, 0.5, 0.5))])),
+                             batch_size=args.test_batch_size, shuffle=True, **kwargs)
+
+    # model = Net().to(device)
+    model = WithoutDropoutNet(dataset='cifar10').to(device)
+    # optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum)
+    optimizer = optim.Adam(model.parameters(), lr=args.lr)
+    # scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[12, 24], gamma=0.1)
+
+    for epoch in range(1, args.epochs + 1):
+        train(args, model, device, train_loader, optimizer, epoch)
+        test(model, device, test_loader)
+
+    if args.save_model:
+        torch.save(model.state_dict(), 'revised_without_dropout_cifar10_fc.pt')
+
+
 def split_layer(num_tot_neurons, num_devices, balanced=True):
     if balanced:
         neurons_vector = numpy.ones(num_devices).astype(int) * int(num_tot_neurons / num_devices)
@@ -274,34 +333,42 @@ def different_inference_schemes(args):
                                                        [transforms.ToTensor(), transforms.Normalize((0.1307,),
                                                                                                     (0.3081,))])),
                              batch_size=args.test_batch_size, shuffle=True, **kwargs)
+    # test_loader = DataLoader(datasets.CIFAR10(root='./Resources/', train=False,
+    #                                                transform=transforms.Compose(
+    #                                                    [transforms.ToTensor(), transforms.Normalize((0.5, 0.5, 0.5),
+    #                                                                                                 (0.5, 0.5, 0.5))])),
+    #                          batch_size=args.test_batch_size, shuffle=True, **kwargs)
 
     # entire_model_dict = torch.load('revised_fashionmnist_fc.pt')
     entire_model_dict = torch.load('revised_without_dropout_fashionmnist_fc.pt')
-    num_devices_list = [2, 3, 4, 5, 6, 7, 8, 9, 10]
+    # entire_model_dict = torch.load('revised_without_dropout_cifar10_fc.pt')
+    num_devices_list = [5]
     # num_devices_list = [3, 5, 7, 9, 11, 13, 15, 17, 19]
     # num_devices_list = [2, 4, 7, 8, 14, 16, 28]
     # num_devices_list = [2, 4, 7, 9, 12, 14, 17, 19]
     # num_devices_list = [2, 4, 6, 8, 10, 12, 14, 16, 18, 20]
     tau2_list = [4.0, 16.0, 25.0]
-    repeat = 50
+    # tau2_list = [0.1, 0.5, 1]
+    repeat = 5
     data_name = 'FashionMNIST'
+    # data_name = 'cifar10'
     legends = ['Scheme 1', 'Scheme 2', r"Scheme 3 $\sigma^{2}=4$", r"Scheme 3 $\sigma^{2}=16$",
                r"Scheme 3 $\sigma^{2}=25$"]
     results = numpy.zeros((len(tau2_list) + 2, repeat, len(num_devices_list)))
     for l in range(len(num_devices_list)):
         # normal model
-        normal_model = Net().to(device)
+        normal_model = WithoutDropoutNet(dataset=data_name).to(device)
         normal_model.load_state_dict(entire_model_dict)
 
         # server-side model set
-        server_model = ServerNet().to(device)
+        server_model = ServerNet(dataset=data_name).to(device)
         server_dict = server_model.state_dict()
         new_server_dict = {k: v for k, v in entire_model_dict.items() if k in server_dict.keys()}
         server_dict.update(new_server_dict)
         server_model.load_state_dict(server_dict)
 
         # cut layer set
-        pure_cut_layer = CutLayer(tau2=0.0, device=device).to(device)
+        pure_cut_layer = CutLayer(tau2=0.0, device=device, dataset=data_name).to(device)
         cut_layer_dict = pure_cut_layer.state_dict()
         new_cut_layer_dict = {k: v for k, v in entire_model_dict.items() if k in cut_layer_dict.keys()}
         cut_layer_dict.update(new_cut_layer_dict)
@@ -309,7 +376,7 @@ def different_inference_schemes(args):
 
         noisy_cut_layers = []
         for i in range(len(tau2_list)):
-            cut_layer = CutLayer(tau2=tau2_list[i], device=device).to(device)
+            cut_layer = CutLayer(tau2=tau2_list[i], device=device, dataset=data_name).to(device)
             cut_layer_dict = cut_layer.state_dict()
             new_cut_layer_dict = {k: v for k, v in entire_model_dict.items() if k in cut_layer_dict.keys()}
             cut_layer_dict.update(new_cut_layer_dict)
@@ -365,6 +432,7 @@ def different_inference_schemes(args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Fashion MNIST')
+    # parser = argparse.ArgumentParser(description='cifar10')
     parser.add_argument('--batch-size', type=int, default=64, metavar='N',
                         help='input batch size for training (default: 64)')
     parser.add_argument('--test-batch-size', type=int, default=1000, metavar='N',
@@ -381,7 +449,12 @@ if __name__ == '__main__':
                         help='number of neurons in the input layer')
     parser.add_argument('--fc1_num_neurons', type=int, default=392, metavar='N',
                         help='number of neurons in the fc1 layer')
+    # parser.add_argument('--input_num_neurons', type=int, default=3072, metavar='N',
+    #                     help='number of neurons in the input layer')
+    # parser.add_argument('--fc1_num_neurons', type=int, default=1536, metavar='N',
+    #                     help='number of neurons in the fc1 layer')
     args = parser.parse_args()
 
     # FashionMNIST_training(args)
+    # cifar10_training(args)
     different_inference_schemes(args)

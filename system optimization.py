@@ -1,5 +1,6 @@
 import cvxpy
 import numpy
+from tqdm import tqdm
 
 
 def sample_spherical(dim):
@@ -116,19 +117,23 @@ def modified_subcarrier_allocation(alpha_mat, max_iter=100):
     mu_vec = numpy.zeros(J)
     lambda_vec = numpy.zeros(K)
     nu_vec = numpy.zeros(N)
-    eta = 0.005
+    eta = 0.001
+    for j in range(J):
+        indicator_mat[j, j] = 1
     pre_mat = numpy.ones((J, K))
 
     for it in range(max_iter):
-        if numpy.linalg.norm(pre_mat - indicator_mat) < 1e-3:
-            break
+        # if numpy.linalg.norm(pre_mat - indicator_mat) < 1e-3:
+        #     break
 
         # multipler update
-        mu_vec = mu_vec + eta * numpy.sum(indicator_mat, axis=1)
-        lambda_vec = lambda_vec + eta * numpy.sum(indicator_mat, axis=0)
+        mu_vec = mu_vec + eta * (1 - numpy.sum(indicator_mat, axis=1))
+        lambda_vec = lambda_vec + eta * (numpy.sum(indicator_mat, axis=0) - 1)
+        for k in range(K):
+            lambda_vec[k] = 0 if lambda_vec[k] < 0 else lambda_vec[k]
         for n in range(N):
-            nu_vec[n] = nu_vec[n] + eta * numpy.sum(numpy.multiply(alpha_mat[n], numpy.square(indicator_mat)))
-
+            nu_vec[n] = nu_vec[n] + eta * (numpy.sum(numpy.multiply(alpha_mat[n], numpy.square(indicator_mat))) - 1)
+            nu_vec[n] = 0 if nu_vec[n] < 0 else nu_vec[n]
         pre_mat = indicator_mat.copy()
         # indicator update
         for j in range(J):
@@ -140,6 +145,9 @@ def modified_subcarrier_allocation(alpha_mat, max_iter=100):
                     indicator_mat[j, k] = 1
                 else:
                     indicator_mat[j, k] = (mu_vec[j] - lambda_vec[k]) / tmp
+
+        # print('inner iter ' + str(it))
+        # print(indicator_mat)
 
     return indicator_mat
 
@@ -178,21 +186,21 @@ def beamforming_optimization(h_mat, beta_mat):
     a_list = list()
     for j in range(J):
         candidates_a = rand_c(A_list[j].value, num_candidates=1)
-        a_list.append(candidates_a)
+        a_list.append(candidates_a[0])
     return a_list
 
 
-def alternating_optimization_framework(h_mat, w_mat, P, max_iter=100):
+def alternating_optimization_framework(h_mat, w_mat, P, max_iter=20):
     N, J = w_mat.shape
     _, K, m = h_mat.shape
     a_list = list()
     c_mat = numpy.zeros((J, K))
     for j in range(J):
-        a_list.append(numpy.ones(m, 1))
+        a_list.append(numpy.ones((m, 1)))
         c_mat[j, j] = 1
     pre_mat = numpy.ones((J, K))
 
-    for it in range(max_iter):
+    for it in tqdm(range(max_iter)):
         if numpy.linalg.norm(pre_mat - c_mat) < 1e-3:
             break
 
@@ -209,8 +217,13 @@ def alternating_optimization_framework(h_mat, w_mat, P, max_iter=100):
         for n in range(N):
             for j in range(J):
                 for k in range(K):
-                    alpha_mat[n, j, k] = P * w_mat / numpy.linalg.norm(numpy.dot(a_list[j], h_mat[n, k])) ** 2
+                    h_vec = numpy.mat(h_mat[n, k, :]).reshape((m, 1))
+                    alpha_mat[n, j, k] = P * w_mat[n, j] / numpy.linalg.norm(numpy.dot(a_list[j].T, h_vec)) ** 2
         c_mat = modified_subcarrier_allocation(alpha_mat)
+
+        print('iter ' + str(it) + ': objective: ' + str(sum([numpy.linalg.norm(a_list[j]) ** 2 for j in range(J)])))
+        print('c_mat: ')
+        print(c_mat)
 
     restricted_idx = numpy.argmax(c_mat, axis=0)
     for j in range(J):
@@ -223,6 +236,35 @@ def alternating_optimization_framework(h_mat, w_mat, P, max_iter=100):
                 beta_mat[n, j, k] = c_mat[j, k] * w_mat[n, j] / P
     a_list = beamforming_optimization(h_mat, beta_mat)
     return a_list, c_mat
+
+
+def test_alternating_optimization():
+    N = 5
+    J = 5
+    K = 10
+    m = 5
+    P = 1
+    w_mat = numpy.zeros((N, J))
+    h_mat = numpy.random.randn(N, K, m)
+    for n in range(N):
+        for j in range(J):
+            w_mat[n, j] = numpy.random.uniform()
+
+    c_mat = numpy.zeros((J, K))
+    for j in range(J):
+        c_mat[j, j] = 1
+    beta_mat = numpy.zeros((N, J, K))
+    for n in range(N):
+        for j in range(J):
+            for k in range(K):
+                beta_mat[n, j, k] = c_mat[j, k] * w_mat[n, j] / P
+    a_list = beamforming_optimization(h_mat, beta_mat)
+    print(c_mat)
+    print(sum([numpy.linalg.norm(a_list[j]) ** 2 for j in range(J)]))
+
+    a_list, c_mat = alternating_optimization_framework(h_mat, w_mat, P)
+    print(c_mat)
+    print(sum([numpy.linalg.norm(a_list[j]) ** 2 for j in range(J)]))
 
 
 def test_solver(H_list, k):
@@ -239,32 +281,34 @@ def test_solver(H_list, k):
 
 
 if __name__ == '__main__':
-    N = 5
-    J = 50
-    K = 100
-    m = 5
-    P = 100
-    a_list = list()
-    w_mat = numpy.zeros((N, J))
-    h_mat = numpy.random.randn(N, K, m)
-    for j in range(J):
-        a_list.append(numpy.random.randn(m, 1))
-    for n in range(N):
-        for j in range(J):
-            w_mat[n, j] = numpy.random.uniform()
-
-    alpha_mat = numpy.zeros((N, J, K))
-    for n in range(N):
-        for j in range(J):
-            for k in range(K):
-                h_nk = numpy.mat(h_mat[n, k, :]).reshape((m, 1))
-                alpha_mat[n, j, k] = numpy.sqrt(P / w_mat[n, j]) * numpy.linalg.norm(numpy.dot(a_list[j].T, h_nk))
-
-    # subcarrier_allocation(alpha_mat)
-    subcarrier_allocation_v2(alpha_mat)
+    # N = 5
+    # J = 50
+    # K = 100
+    # m = 5
+    # P = 100
+    # a_list = list()
+    # w_mat = numpy.zeros((N, J))
+    # h_mat = numpy.random.randn(N, K, m)
+    # for j in range(J):
+    #     a_list.append(numpy.random.randn(m, 1))
+    # for n in range(N):
+    #     for j in range(J):
+    #         w_mat[n, j] = numpy.random.uniform()
+    #
+    # alpha_mat = numpy.zeros((N, J, K))
+    # for n in range(N):
+    #     for j in range(J):
+    #         for k in range(K):
+    #             h_nk = numpy.mat(h_mat[n, k, :]).reshape((m, 1))
+    #             alpha_mat[n, j, k] = numpy.sqrt(P / w_mat[n, j]) * numpy.linalg.norm(numpy.dot(a_list[j].T, h_nk))
+    #
+    # # subcarrier_allocation(alpha_mat)
+    # subcarrier_allocation_v2(alpha_mat)
 
     # k = 5
     # H_list = list()
     # for i in range(10):
     #     H_list.append(numpy.random.randn(k, k))
     # test_solver(H_list, k)
+
+    test_alternating_optimization()

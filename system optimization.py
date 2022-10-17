@@ -354,21 +354,68 @@ def alternating_optimization_framework(h_mat, w_mat, P, max_iter=20):
         # print('c_mat: ')
         # print(c_mat)
 
-    restricted_idx = numpy.argmax(c_mat, axis=0)
-    for k in range(K):
-        for j in range(J):
-            c_mat[j, k] = c_mat[j, k] if restricted_idx[k] == j else 0
-    restricted_idx = numpy.argmax(c_mat, axis=1)
-    for j in range(J):
-        for k in range(K):
-            c_mat[j, k] = 1 if restricted_idx[j] == k else 0
+    # restricted_idx = numpy.argmax(c_mat, axis=0)
+    # for k in range(K):
+    #     for j in range(J):
+    #         c_mat[j, k] = c_mat[j, k] if restricted_idx[k] == j else 0
+    # restricted_idx = numpy.argmax(c_mat, axis=1)
+    # for j in range(J):
+    #     for k in range(K):
+    #         c_mat[j, k] = 1 if restricted_idx[j] == k else 0
+    indicator_mat = round_indicator_mat(c_mat)
     beta_mat = numpy.zeros((N, J, K))
     for n in range(N):
         for j in range(J):
             for k in range(K):
-                beta_mat[n, j, k] = w_mat[n, j] * c_mat[j, k] ** 2 / P
+                beta_mat[n, j, k] = w_mat[n, j] * indicator_mat[j, k] ** 2 / P
     a_list = beamforming_optimization(h_mat, beta_mat)
-    return a_list, c_mat
+    return a_list, indicator_mat
+
+
+def assignment_index(indicator_mat):
+    J, K = indicator_mat.shape
+    for j in range(J):
+        if sum(indicator_mat[j]) == 0:
+            return j
+    return J
+
+
+def round_indicator_mat(c_mat):
+    J, K = c_mat.shape
+    augmented_c_mat = numpy.zeros((K, K))
+    for j in range(J):
+        for k in range(K):
+            augmented_c_mat[j, k] = c_mat[j, k]
+    augmented_indicator_mat = numpy.zeros((K, K))
+    visited_mat = numpy.zeros((K, K))
+
+    while assignment_index(augmented_indicator_mat) < K:
+        unassigned_j = assignment_index(augmented_indicator_mat)
+        idx_list = numpy.argsort(augmented_c_mat[unassigned_j])
+        idx = 0
+        for k in range(K):
+            if visited_mat[unassigned_j, idx_list[K - k - 1]] == 0:
+                idx = idx_list[K - k - 1]
+                visited_mat[unassigned_j, idx] = 1
+                break
+
+        if sum(augmented_indicator_mat[:, idx]) == 0:
+            augmented_indicator_mat[unassigned_j, idx] = 1
+        else:
+            pre_j = 0
+            for j in range(J):
+                if augmented_indicator_mat[j, idx] == 1:
+                    pre_j = j
+                    break
+            if augmented_c_mat[unassigned_j, idx] > augmented_c_mat[pre_j, idx]:
+                augmented_indicator_mat[unassigned_j, idx] = 1
+                augmented_indicator_mat[pre_j, idx] = 0
+
+    indicator_mat = numpy.zeros((J, K))
+    for j in range(J):
+        for k in range(K):
+            indicator_mat[j, k] = augmented_indicator_mat[j, k]
+    return indicator_mat
 
 
 def test_alternating_optimization():

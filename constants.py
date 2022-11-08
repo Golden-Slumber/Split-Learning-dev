@@ -3,3 +3,5 @@ marker_list = ['o', 's', 'd', '*', '|', 'x']
 HYBRID = 'hybrid'
 GOSSIP = 'gossip'
 LOCAL = 'local'
+OPTIMIZED = 'optimized'
+RANDOM = 'randomized'

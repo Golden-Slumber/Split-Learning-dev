@@ -102,8 +102,8 @@ class MultiModalityNet(nn.Module):
              range(len(next_layer_neurons))])
 
         if dataset == 'FashionMNIST':
-            self.fc2 = nn.Linear(392, 196)
-            self.fc3 = nn.Linear(196, 98, bias=True)
+            self.fc2 = nn.Linear(392, 32)
+            self.fc3 = nn.Linear(32, 98, bias=True)
             self.fc4 = nn.Linear(98, 49, bias=True)
             self.output = nn.Linear(49, 10, bias=True)
         elif dataset == 'cifar10':
@@ -122,6 +122,7 @@ class MultiModalityNet(nn.Module):
         for i in range(len(self.next_layer_neurons)):
             x_data = x_list[i]
             sub_model_output = self.sub_models[i](x_data)
+            print('sub_model_output', sub_model_output.shape)
 
             sub_model_output = self.layer_norms[i](sub_model_output)
             # print(torch.mean(sub_model_output))
@@ -263,7 +264,7 @@ def FashionMNIST_training(args):
         test(model, device, test_loader)
 
     if args.save_model:
-        torch.save(model.state_dict(), 'multi_modality_fashionmnist_normalized_fc.pt')
+        torch.save(model.state_dict(), 'simplified_multi_modality_fashionmnist_normalized_fc.pt')
 
 
 def cifar10_training(args):
@@ -353,6 +354,8 @@ if __name__ == '__main__':
 
     model_state_dict = torch.load('multi_modality_fashionmnist_normalized_fc.pt')
     print(model_state_dict)
+    print(model_state_dict['fc2.weight'].shape)
+    print(model_state_dict['fc2.bias'].shape)
     model = MultiModalityNet(next_layer_neurons, pre_layer_neurons, tau2=0., device=device,
                              dataset='FashionMNIST').to(device)
 

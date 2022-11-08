@@ -1,8 +1,12 @@
+import sys
 import cmath
 
 import cvxpy
 import numpy
 from tqdm import tqdm
+
+home_dir = './'
+sys.path.append(home_dir)
 
 
 def sample_spherical(dim):
@@ -545,43 +549,7 @@ def test_alternating_optimization():
             check_constraints(c_mat, a_list, w_mat, h_mat, P)
 
 
-def alternating_optimization_v2(w_mat, h_mat, sigma, P, max_iter=100):
-    N, J = w_mat.shape
-    _, K, m = h_mat.shape
-    a_list = list()
-    c_mat = numpy.zeros((J, K))
-    b_mat = numpy.zeros((N, J))
-    for j in range(J):
-        c_mat[j, j] = 1
-    for n in range(N):
-        for j in range(J):
-            b_mat[n, j] = P / J / w_mat[n, j]
-    pre_obj = 1e6
 
-    for it in tqdm(range(max_iter)):
-        # # beamforming optimization
-        # a_list = beamforming_alternating_optimization_v2(w_mat, h_mat, sigma, c_mat, b_mat)
-        #
-        # # transmission power optimization
-        # b_mat = transmit_power_alternaing_optimization_v2(w_mat, h_mat, P, c_mat, a_list)
-        b_mat, a_list = sub_alternating_optimization_v2(c_mat, w_mat, h_mat, sigma, P)
-
-        new_obj = objective_calculation(a_list, c_mat, h_mat, b_mat, w_mat, sigma)
-        print('iter ' + str(it) + ': objective: ' + str(new_obj))
-        print(c_mat)
-        check_constraints_v2(c_mat, w_mat, b_mat, P)
-        if abs(new_obj - pre_obj) < 1e-8:
-            break
-        pre_obj = new_obj
-
-        # subcarrier allocation
-        c_mat = subcarrier_allocation_optimization_v2(w_mat, h_mat, a_list, b_mat)
-
-    indicator_mat = round_indicator_mat(c_mat)
-    # b_mat = transmit_power_alternaing_optimization_v2(w_mat, h_mat, P, indicator_mat, a_list)
-    # a_list = beamforming_alternating_optimization_v2(w_mat, h_mat, sigma, c_mat, b_mat)
-    b_mat, a_list = sub_alternating_optmization(indicator_mat, w_mat, h_mat, sigma, P)
-    return indicator_mat, b_mat, a_list
 
 
 def objective_calculation(a_list, c_mat, h_mat, b_mat, w_mat, sigma):
@@ -709,7 +677,7 @@ def beamforming_alternating_optimization_v2(w_mat, h_mat, sigma, indicator_mat, 
     return a_list
 
 
-def subcarrier_allocation_optimization_v2(w_mat, h_mat, a_list, b_mat, max_iter=200):
+def subcarrier_allocation_optimization_v2(w_mat, h_mat, a_list, b_mat, max_iter=150):
     N, J = w_mat.shape
     _, K, m = h_mat.shape
     indicator_mat = numpy.zeros((J, K))
@@ -722,8 +690,12 @@ def subcarrier_allocation_optimization_v2(w_mat, h_mat, a_list, b_mat, max_iter=
                     numpy.dot(a_list[j].T, numpy.mat(h_mat[n, k, :]).reshape((m, 1))))
                 square_alpha_mat[n, j, k] = alpha_mat[n, j, k] ** 2
     lambda_vec = numpy.ones(K)
+    mu_vec = numpy.zeros(J)
     # mu_vec = numpy.ones(J)
-    eta_list = [0.001, 0.01]
+    eta_list = [0.01, 0.005]
+    # print('b_mat', b_mat)
+    # print('alpha_mat', alpha_mat)
+    # print('w_mat', w_mat)
 
     for it in range(max_iter):
         # multipler update
@@ -735,11 +707,13 @@ def subcarrier_allocation_optimization_v2(w_mat, h_mat, a_list, b_mat, max_iter=
         for j in range(J):
             value_vec = numpy.zeros(K)
             sub_value_vec = numpy.zeros(K)
+            scale_value_vec = numpy.zeros(K)
             for k in range(K):
                 sub_value_vec[k] = lambda_vec[k] - 2 * numpy.sum(numpy.multiply(w_mat[:, j], alpha_mat[:, j, k]))
                 value_vec[k] = lambda_vec[k] - 2 * numpy.sum(
                     numpy.multiply(w_mat[:, j], alpha_mat[:, j, k])) + 2 * numpy.sum(
                     numpy.multiply(w_mat[:, j], square_alpha_mat[:, j, k]))
+                scale_value_vec[k] = 2 * numpy.sum(numpy.multiply(w_mat[:, j], square_alpha_mat[:, j, k]))
 
             idx = numpy.argmin(value_vec)
             sub_value_list = list()
@@ -752,15 +726,28 @@ def subcarrier_allocation_optimization_v2(w_mat, h_mat, a_list, b_mat, max_iter=
                 for k in range(K):
                     indicator_mat[j, k] = 1 if k == idx else 0
             else:
-                mu_vec = numpy.zeros(J)
-                for k in range(K):
-                    for inner_it in range(max_iter):
+                left = numpy.max(value_vec) - numpy.max(scale_value_vec)
+                right = numpy.max(value_vec) + numpy.max(scale_value_vec)
+                for inner_it in range(20):
+                    # if j == 0:
+                    #     print('inner iter ', inner_it)
+                    #     print('left ', left)
+                    #     print('right ', right)
+                    #     print('indicator ', indicator_mat[j] )
+                    mu_vec[j] = (left + right) / 2
+                    for k in range(K):
                         divider = 2 * numpy.sum(numpy.multiply(w_mat[:, j], square_alpha_mat[:, j, k]))
                         indicator_mat[j, k] = 0 if sub_value_vec[k] >= mu_vec[j] else (mu_vec[j] - sub_value_vec[
                             k]) / divider
-                        if numpy.sum(indicator_mat[j]) >= 1:
-                            break
-                        mu_vec[j] += eta_list[0]
+                    if abs(numpy.sum(indicator_mat[j]) - 1) < 1e-2:
+                        break
+                    elif numpy.sum(indicator_mat[j]) < 1:
+                        left = mu_vec[j]
+                    else:
+                        right = mu_vec[j]
+
+        # print('--subcarrier allocation iter ', it)
+        # print(indicator_mat)
 
     return indicator_mat
 
@@ -776,7 +763,7 @@ def sub_alternating_optmization(indicator_mat, w_mat, h_mat, sigma, P, max_iter=
     # for j in range(J):
     #     a_list.append(numpy.ones((m, 1)))
     pre_obj = 1e6
-    print(b_mat)
+    # print(b_mat)
 
     for it in tqdm(range(max_iter)):
         # beamforming optimization
@@ -786,8 +773,8 @@ def sub_alternating_optmization(indicator_mat, w_mat, h_mat, sigma, P, max_iter=
         b_mat = transmit_power_alternaing_optimization_v2(w_mat, h_mat, P, indicator_mat, a_list)
 
         new_obj = objective_calculation(a_list, indicator_mat, h_mat, b_mat, w_mat, sigma)
-        print('sub-iter ' + str(it) + ': objective: ' + str(new_obj))
-        check_constraints_v2(indicator_mat, w_mat, b_mat, P)
+        # print('sub-iter ' + str(it) + ': objective: ' + str(new_obj))
+        # check_constraints_v2(indicator_mat, w_mat, b_mat, P)
         if abs(new_obj - pre_obj) < 1e-8:
             break
         pre_obj = new_obj
@@ -808,9 +795,9 @@ def sub_alternating_optimization_v2(indicator_mat, w_mat, h_mat, sigma, P, max_i
         for j in range(J):
             b_mat[n, j] = P / J / w_mat[n, j]
     pre_obj = 1e6
-    print(b_mat)
+    # print(b_mat)
 
-    eta = 0.01
+    eta = 0.1
     for it in range(max_iter):
         # multipler update
         for n in range(N):
@@ -855,15 +842,221 @@ def sub_alternating_optimization_v2(indicator_mat, w_mat, h_mat, sigma, P, max_i
             # print('inner transmission power update ', inner_it)
             # print(b_mat)
 
-
         new_obj = objective_calculation(a_list, indicator_mat, h_mat, b_mat, w_mat, sigma)
-        print('--sub-iter ' + str(it) + ': objective: ' + str(new_obj))
-        check_constraints_v2(indicator_mat, w_mat, b_mat, P)
+        # print('--sub-iter ' + str(it) + ': objective: ' + str(new_obj))
+        # check_constraints_v2(indicator_mat, w_mat, b_mat, P)
         if abs(new_obj - pre_obj) < 1e-8:
             break
         pre_obj = new_obj
 
     return b_mat, a_list
+
+
+def lagrange_objective_calculation(a_list, c_mat, h_mat, b_mat, w_mat, sigma, P, mu_vec, lambda_vec, nu_vec):
+    N, J = w_mat.shape
+    _, K, m = h_mat.shape
+    obj = 0
+    for n in range(N):
+        for j in range(J):
+            # sum_h_vec = numpy.zeros((m, 1))
+            # for k in range(K):
+            #     sum_h_vec += c_mat[j, k] * numpy.mat(h_mat[n, k, :]).reshape((m, 1))
+            # obj += w_mat[n, j] * (b_mat[n, j] * numpy.sum(numpy.dot(a_list[j].T, sum_h_vec)) - 1) ** 2
+            for k in range(K):
+                h_vec = numpy.mat(h_mat[n, k, :]).reshape((m, 1))
+                tmp = c_mat[j, k] * b_mat[n, j] * numpy.sum(numpy.dot(a_list[j].T, h_vec))
+                obj += w_mat[n, j] * (tmp ** 2 - 2 * tmp)
+            obj += 1
+
+    for j in range(J):
+        obj += sigma * numpy.linalg.norm(a_list[j]) ** 2
+
+    for n in range(N):
+        tmp = 0
+        for j in range(J):
+            tmp += b_mat[n, j] ** 2 * w_mat[n, j] - P
+        obj += nu_vec[n] * tmp
+
+    for j in range(J):
+        tmp = 1
+        for k in range(K):
+            tmp -= c_mat[j, k]
+        obj += mu_vec[j] * tmp
+
+    for k in range(K):
+        tmp = -1
+        for j in range(J):
+            tmp += c_mat[j, k]
+        obj += lambda_vec[k] * tmp
+
+    return obj
+
+
+def alternating_optimization_v3(w_mat, h_mat, sigma, P, max_iter=50):
+    N, J = w_mat.shape
+    _, K, m = h_mat.shape
+    a_list = list()
+    indicator_mat = numpy.zeros((J, K))
+    b_mat = numpy.zeros((N, J))
+
+    nu_vec = numpy.zeros(N)
+    lambda_vec = numpy.ones(K)
+    mu_vec = numpy.zeros(J)
+
+    for j in range(J):
+        indicator_mat[j, j] = 1
+    for n in range(N):
+        for j in range(J):
+            b_mat[n, j] = P / J / w_mat[n, j]
+    pre_obj = 1e6
+
+    eta_1 = 1
+    eta_2 = 0.1
+    # eta_1 = 0.01
+    # eta_2 = 0.01
+    for it in tqdm(range(max_iter)):
+        # multipler update
+        for n in range(N):
+            tmp = 0
+            for j in range(J):
+                tmp += w_mat[n, j] * b_mat[n, j] ** 2
+            nu_vec[n] += eta_1 * (tmp - P)
+            nu_vec[n] = 0 if nu_vec[n] < 0 else nu_vec[n]
+
+        lambda_vec = lambda_vec + eta_2 * (numpy.sum(indicator_mat, axis=0) - 1)
+        for k in range(K):
+            lambda_vec[k] = 0 if lambda_vec[k] < 0 else lambda_vec[k]
+
+        # variable alternating update
+        pre_b_mat = numpy.ones((N, J)) * 1e6
+        for inner_it in range(max_iter * 10):
+            if numpy.linalg.norm(pre_b_mat - b_mat) < 1e-5:
+                break
+            pre_b_mat = b_mat
+
+            # beamforming update
+            alpha_mat = numpy.zeros((J, N, K))
+            a_list.clear()
+            alpha_vec = numpy.zeros((J, m, 1))
+            for j in range(J):
+                for n in range(N):
+                    for k in range(K):
+                        h_vec = numpy.mat(h_mat[n, k, :]).reshape((m, 1))
+                        alpha_vec[j] += w_mat[n, j] * indicator_mat[j, k] * b_mat[n, j] * h_vec
+                        alpha_mat[j, n, k] = w_mat[n, j] * numpy.linalg.norm(
+                            indicator_mat[j, k] * b_mat[n, j] * h_vec) ** 2
+            for j in range(J):
+                a_list.append(alpha_vec[j] / (numpy.sum(alpha_mat[j]) + sigma))
+
+            # transmission power update
+            for n in range(N):
+                for j in range(J):
+                    tmp = 0
+                    sqaure_tmp = 0
+                    for k in range(K):
+                        tmp += indicator_mat[j, k] * numpy.sum(
+                            numpy.dot(a_list[j].T, numpy.mat(h_mat[n, k, :]).reshape((m, 1))))
+                        sqaure_tmp += (indicator_mat[j, k] * numpy.sum(
+                            numpy.dot(a_list[j].T, numpy.mat(h_mat[n, k, :]).reshape((m, 1))))) ** 2
+                    b_mat[n, j] = tmp / (sqaure_tmp + nu_vec[n])
+
+        new_obj = objective_calculation(a_list, indicator_mat, h_mat, b_mat, w_mat, sigma)
+        # new_obj = lagrange_objective_calculation(a_list, indicator_mat, h_mat, b_mat, w_mat, sigma, P, mu_vec,
+        #                                          lambda_vec, nu_vec)
+        print('iter ' + str(it) + ': objective: ' + str(new_obj))
+        print(indicator_mat)
+        check_constraints_v2(indicator_mat, w_mat, b_mat, P)
+        if abs(new_obj - pre_obj) < 1e-5:
+            break
+        pre_obj = new_obj
+
+        # indicator update
+        beta_mat = numpy.zeros((N, J, K))
+        square_beta_mat = numpy.zeros((N, J, K))
+        for n in range(N):
+            for j in range(J):
+                for k in range(K):
+                    beta_mat[n, j, k] = b_mat[n, j] * numpy.sum(
+                        numpy.dot(a_list[j].T, numpy.mat(h_mat[n, k, :]).reshape((m, 1))))
+                    square_beta_mat[n, j, k] = beta_mat[n, j, k] ** 2
+        for j in range(J):
+            value_vec = numpy.zeros(K)
+            sub_value_vec = numpy.zeros(K)
+            scale_value_vec = numpy.zeros(K)
+            for k in range(K):
+                sub_value_vec[k] = lambda_vec[k] - 2 * numpy.sum(numpy.multiply(w_mat[:, j], beta_mat[:, j, k]))
+                value_vec[k] = lambda_vec[k] - 2 * numpy.sum(
+                    numpy.multiply(w_mat[:, j], beta_mat[:, j, k])) + 2 * numpy.sum(
+                    numpy.multiply(w_mat[:, j], square_beta_mat[:, j, k]))
+                scale_value_vec[k] = 2 * numpy.sum(numpy.multiply(w_mat[:, j], square_beta_mat[:, j, k]))
+
+            idx = numpy.argmin(value_vec)
+            sub_value_list = list()
+            for k in range(K):
+                if k != idx:
+                    sub_value_list.append(
+                        lambda_vec[k] - 2 * numpy.sum(numpy.multiply(w_mat[:, j], beta_mat[:, j, k])))
+            sub_value_list.sort()
+            if value_vec[idx] < sub_value_list[0]:
+                for k in range(K):
+                    indicator_mat[j, k] = 1 if k == idx else 0
+            else:
+                left = numpy.max(value_vec) - numpy.max(scale_value_vec)
+                right = numpy.max(value_vec) + numpy.max(scale_value_vec)
+                for binary_it in range(100):
+                    mu_vec[j] = (left + right) / 2
+                    for k in range(K):
+                        divider = 2 * numpy.sum(numpy.multiply(w_mat[:, j], square_beta_mat[:, j, k]))
+                        indicator_mat[j, k] = 0 if sub_value_vec[k] >= mu_vec[j] else (mu_vec[j] - sub_value_vec[
+                            k]) / divider
+                    if abs(numpy.sum(indicator_mat[j]) - 1) < 1e-2:
+                        break
+                    elif numpy.sum(indicator_mat[j]) < 1:
+                        left = mu_vec[j]
+                    else:
+                        right = mu_vec[j]
+
+    indicator_mat = round_indicator_mat(indicator_mat)
+    b_mat, a_list = sub_alternating_optimization_v2(indicator_mat, w_mat, h_mat, sigma, P)
+    return indicator_mat, b_mat, a_list
+
+def alternating_optimization_v2(w_mat, h_mat, sigma, P, max_iter=20):
+    N, J = w_mat.shape
+    _, K, m = h_mat.shape
+    a_list = list()
+    c_mat = numpy.zeros((J, K))
+    b_mat = numpy.zeros((N, J))
+    for j in range(J):
+        c_mat[j, j] = 1
+    for n in range(N):
+        for j in range(J):
+            b_mat[n, j] = P / J / w_mat[n, j]
+    pre_obj = 1e6
+
+    for it in tqdm(range(max_iter)):
+        # # beamforming optimization
+        # a_list = beamforming_alternating_optimization_v2(w_mat, h_mat, sigma, c_mat, b_mat)
+        #
+        # # transmission power optimization
+        # b_mat = transmit_power_alternaing_optimization_v2(w_mat, h_mat, P, c_mat, a_list)
+        b_mat, a_list = sub_alternating_optimization_v2(c_mat, w_mat, h_mat, sigma, P)
+
+        new_obj = objective_calculation(a_list, c_mat, h_mat, b_mat, w_mat, sigma)
+        print('iter ' + str(it) + ': objective: ' + str(new_obj))
+        print(c_mat)
+        check_constraints_v2(c_mat, w_mat, b_mat, P)
+        if abs(new_obj - pre_obj) < 1e-8:
+            break
+        pre_obj = new_obj
+
+        # subcarrier allocation
+        c_mat = subcarrier_allocation_optimization_v2(w_mat, h_mat, a_list, b_mat)
+
+    indicator_mat = round_indicator_mat(c_mat)
+    # b_mat = transmit_power_alternaing_optimization_v2(w_mat, h_mat, P, indicator_mat, a_list)
+    # a_list = beamforming_alternating_optimization_v2(w_mat, h_mat, sigma, c_mat, b_mat)
+    b_mat, a_list = sub_alternating_optimization_v2(indicator_mat, w_mat, h_mat, sigma, P)
+    return indicator_mat, b_mat, a_list
 
 def test_alternating_optimization_v2():
     N = 5
@@ -885,9 +1078,9 @@ def test_alternating_optimization_v2():
     #     perm = numpy.random.permutation(K)
     #     h_mat[n] = h_mat[n] * (scale_vec[perm].reshape((K, 1)))
 
-    for t in range(5):
+    for t in range(1):
         for P in P_list:
-            print(P)
+            # print(P)
             c_mat = numpy.zeros((J, K))
             for j in range(J):
                 c_mat[j, j] = 1
@@ -896,9 +1089,27 @@ def test_alternating_optimization_v2():
             print(c_mat)
             print(objective_calculation(a_list, c_mat, h_mat, b_mat, w_mat, sigma))
 
-            c_mat, b_mat, a_list = alternating_optimization_v2(w_mat, h_mat, sigma, P)
+            c_mat, b_mat, a_list = alternating_optimization_v3(w_mat, h_mat, sigma, P)
             print(c_mat)
             print(objective_calculation(a_list, c_mat, h_mat, b_mat, w_mat, sigma))
+
+
+def random_system_param(w_mat, h_mat, sigma, P):
+    N, J = w_mat.shape
+    _, K, m = h_mat.shape
+    a_list = list()
+    b_mat = numpy.zeros((N, J))
+    indicator_mat = numpy.zeros((J, K))
+
+    for j in range(J):
+        indicator_mat[j, j] = 1
+        a_list.append(numpy.ones((m, 1)))
+
+    for n in range(N):
+        for j in range(J):
+            b_mat[n, j] = P / J / w_mat[n, j]
+
+    return indicator_mat, b_mat, a_list
 
 
 def test_solver(H_list, k):

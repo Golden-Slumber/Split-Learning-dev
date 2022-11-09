@@ -197,7 +197,7 @@ def plot_results(res, tau2_list, data_name, legends):
     plt.tight_layout()
     plt.grid()
 
-    image_name = home_dir + 'Outputs/aircomp_based_inference_' + data_name + '_normalized.pdf'
+    image_name = home_dir + 'Outputs/aircomp_based_inference_' + data_name + '.pdf'
     fig.savefig(image_name, format='pdf', dpi=1200)
     plt.show()
 
@@ -259,7 +259,8 @@ if __name__ == '__main__':
     K = 50
     m = 5
     P = 20
-    tau2_list = [0.1, 0.3, 0.5, 0.7, 0.9, 1.1, 1.3, 1.5]
+    # tau2_list = [0.1, 0.3, 0.5, 0.7, 0.9, 1.1, 1.3, 1.5]
+    tau2_list = [0.1, 0.5, 0.9, 1.3, 1.7, 2.1, 2.5]
     w_mat = numpy.zeros((n_devices, J))
     h_mat = abs(numpy.random.randn(n_devices, K, m))
     for n in range(n_devices):
@@ -286,6 +287,6 @@ if __name__ == '__main__':
             pure_model.load_state_dict(model_state_dict)
             results[2, r, i] = test(pure_model, device, test_loader)
     out_file_name = home_dir + 'Outputs/aircomp_based_split_inference_' + data_name + '_repeat_' + str(
-        repeat) + '_normalized_results.npz'
+        repeat) + '_results.npz'
     numpy.savez(out_file_name, res=results)
     plot_results(results, tau2_list, data_name, legends)

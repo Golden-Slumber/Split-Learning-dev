@@ -1107,7 +1107,7 @@ def random_system_param(w_mat, h_mat, sigma, P):
 
     for n in range(N):
         for j in range(J):
-            b_mat[n, j] = P / J / w_mat[n, j]
+            b_mat[n, j] = numpy.sqrt(P / J / w_mat[n, j])
 
     return indicator_mat, b_mat, a_list
 

@@ -13,6 +13,7 @@ from matplotlib.ticker import PercentFormatter
 from constants import *
 from multi_modality_nural_network import MultiModalityNet
 from system_optimization import alternating_optimization_v2, random_system_param, alternating_optimization_v3
+from revised_system_optimization import alternating_optimization_framework, fixed_subcarrier_allocation, random_system_param_v2
 
 home_dir = './'
 sys.path.append(home_dir)
@@ -43,7 +44,7 @@ class WirelessSplitNet(nn.Module):
 
         # cut layer
         self.cut_layer = nn.ModuleList(
-            [nn.Sequential(nn.Linear(next_layer_neurons[j], 32), nn.ReLU()) for j in
+            [nn.Sequential(nn.Linear(next_layer_neurons[j], 32)) for j in
              range(len(next_layer_neurons))])
         self.cut_layer_bias = None
 
@@ -58,14 +59,23 @@ class WirelessSplitNet(nn.Module):
         self.tau2 = tau2
         self.P = P
         self.mode = mode
-        if self.mode == OPTIMIZED:
-            tmp_indicator_mat, tmp_b_mat, tmp_a_list = alternating_optimization_v3(self.w_mat, self.h_mat, self.tau2, self.P)
-        elif self.mode == RANDOM:
-            tmp_indicator_mat, tmp_b_mat, tmp_a_list = random_system_param(self.w_mat, self.h_mat, self.tau2, self.P)
-        self.indicator_mat = torch.from_numpy(tmp_indicator_mat).to(self.device)
-        self.b_mat = torch.from_numpy(tmp_b_mat).to(self.device)
-        for j in range(32):
-            self.a_list.append(torch.from_numpy(tmp_a_list[j]).to(self.device))
+        if self.mode != PURE:
+            if self.mode == OPTIMIZED:
+                tmp_indicator_mat, tmp_b_mat, tmp_a_list = alternating_optimization_framework(self.w_mat, self.h_mat,
+                                                                                              self.tau2, self.P)
+            elif self.mode == RANDOM:
+                tmp_indicator_mat, tmp_b_mat, tmp_a_list = fixed_subcarrier_allocation(self.w_mat, self.h_mat,
+                                                                                       self.tau2, self.P)
+            elif self.mode == RANDOM2:
+                tmp_indicator_mat, tmp_b_mat, tmp_a_list = random_system_param_v2(self.w_mat, self.h_mat,
+                                                                                       self.tau2, self.P)
+            # print(tmp_indicator_mat)
+            # print(tmp_b_mat)
+            # print(tmp_a_list)
+            self.indicator_mat = torch.from_numpy(tmp_indicator_mat).to(self.device)
+            self.b_mat = torch.from_numpy(tmp_b_mat).to(self.device)
+            for j in range(32):
+                self.a_list.append(torch.from_numpy(tmp_a_list[j]).to(self.device))
 
     def forward(self, x):
         x = x.view(-1, 784)
@@ -90,24 +100,29 @@ class WirelessSplitNet(nn.Module):
             device_side_output_list.append(device_side_output)
 
         # over-the-air aggregation
-        tmp_h_mat = torch.from_numpy(self.h_mat).to(self.device)
-        received_signal = torch.zeros((1000, 32)).to(self.device)
-        for n in range(self.n_devices):
-            transmit_signal = torch.multiply(device_side_output_list[n], self.b_mat[n])
-            h_vec = torch.zeros(32).to(self.device)
-            for j in range(32):
-                for k in range(self.indicator_mat.shape[1]):
-                    if self.indicator_mat[j, k] == 1:
-                        h_vec[j] = torch.sum(torch.mm(self.a_list[j].T, tmp_h_mat[n, k].reshape((5, 1))))
-            received_signal += torch.multiply(transmit_signal, h_vec)
-        noise = torch.normal(0, self.tau2, (1000, 32, 5)).to(self.device)
-        scaled_noise = torch.zeros(received_signal.shape).to(self.device)
-        for i in range(1000):
-            for j in range(32):
-                scaled_noise[i, j] = torch.sum(torch.mm(self.a_list[j].T.float(), noise[i, j].reshape((5, 1))))
-        received_signal = received_signal + scaled_noise
-        x = received_signal + self.cut_layer_bias
-        x = self.relu(x)
+        if self.mode != PURE:
+            tmp_h_mat = torch.from_numpy(self.h_mat).to(self.device)
+            received_signal = torch.zeros((1000, 32)).to(self.device)
+            for n in range(self.n_devices):
+                transmit_signal = torch.multiply(device_side_output_list[n], self.b_mat[n])
+                h_vec = torch.zeros(32).to(self.device)
+                for j in range(32):
+                    for k in range(self.indicator_mat.shape[1]):
+                        if self.indicator_mat[j, k] == 1:
+                            h_vec[j] = torch.sum(torch.mm(self.a_list[j].T, tmp_h_mat[n, k].reshape((5, 1))))
+                received_signal += torch.multiply(transmit_signal, h_vec)
+            noise = torch.normal(0, self.tau2, (1000, 32, 5)).to(self.device)
+            scaled_noise = torch.zeros(received_signal.shape).to(self.device)
+            for i in range(1000):
+                for j in range(32):
+                    scaled_noise[i, j] = torch.sum(torch.mm(self.a_list[j].T.float(), noise[i, j].reshape((5, 1))))
+            received_signal = received_signal + scaled_noise
+            x = received_signal + self.cut_layer_bias
+            x = self.relu(x)
+        else:
+            # print(device_side_output_list)
+            x = sum(device_side_output_list) + self.cut_layer_bias
+            x = self.relu(x)
 
         x = self.relu(self.fc3(x))
         x = self.relu(self.fc4(x))
@@ -202,6 +217,39 @@ def plot_results(res, tau2_list, data_name, legends):
     plt.show()
 
 
+def FashionMNIST_training(args, n_devices, next_layer_neurons, pre_layer_neurons):
+    use_cuda = not args.no_cuda and torch.cuda.is_available()
+    torch.manual_seed(args.seed)
+    device = torch.device("cuda" if use_cuda else "cpu")
+
+    kwargs = {'num_workers': 1, 'pin_memory': True} if use_cuda else {}
+    train_loader = DataLoader(datasets.FashionMNIST(root='./Resources/', train=True, download=True,
+                                                    transform=transforms.Compose([transforms.ToTensor(),
+                                                                                  transforms.Normalize((0.1307,),
+                                                                                                       (0.3081,))])),
+                              batch_size=args.batch_size, shuffle=True, **kwargs)
+    test_loader = DataLoader(datasets.FashionMNIST(root='./Resources/', train=False,
+                                                   transform=transforms.Compose(
+                                                       [transforms.ToTensor(), transforms.Normalize((0.1307,),
+                                                                                                    (0.3081,))])),
+                             batch_size=args.test_batch_size, shuffle=True, **kwargs)
+
+    # n_devices = 4
+    # next_layer_neurons = split_layer(args.fc1_num_neurons, n_devices, balanced=True)
+    # pre_layer_neurons = split_layer(args.input_num_neurons, n_devices, balanced=True)
+    model = MultiModalityNet(next_layer_neurons, pre_layer_neurons, tau2=0., device=device, dataset='FashionMNIST').to(
+        device)
+
+    optimizer = optim.Adam(model.parameters(), lr=args.lr)
+
+    for epoch in range(1, args.epochs + 1):
+        train(args, model, device, train_loader, optimizer, epoch)
+        test(model, device, test_loader)
+
+    if args.save_model:
+        torch.save(model.state_dict(), 'multi_modality_fashionmnist_n_devices_' + str(n_devices) + '.pt')
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Fashion MNIST')
     parser.add_argument('--batch-size', type=int, default=64, metavar='N',
@@ -232,20 +280,30 @@ if __name__ == '__main__':
                                                                                                     (0.3081,))])),
                              batch_size=args.test_batch_size, shuffle=True, **kwargs)
 
-    n_devices = 4
-    next_layer_neurons = split_layer(args.fc1_num_neurons, n_devices, balanced=True)
-    pre_layer_neurons = split_layer(args.input_num_neurons, n_devices, balanced=True)
+    n_devices = 14
+    # next_layer_neurons = split_layer(args.fc1_num_neurons, n_devices, balanced=False)
+    # pre_layer_neurons = split_layer(args.input_num_neurons, n_devices, balanced=False)
+    # unbalanced
+    next_layer_neurons_list = [21, 28, 35, 21, 28, 35, 21, 28, 35, 21, 28, 35, 28, 28]
+    pre_layer_neurons_list = [42, 56, 70, 42, 56, 70, 42, 56, 70, 42, 56, 70, 56, 56]
+    next_layer_neurons = numpy.array(next_layer_neurons_list)
+    pre_layer_neurons = numpy.array(pre_layer_neurons_list)
+
+    # FashionMNIST_training(args, n_devices, next_layer_neurons, pre_layer_neurons)
 
     # load model
-    model_state_dict = torch.load('simplified_multi_modality_fashionmnist_normalized_fc.pt')
+    model_state_dict = torch.load('multi_modality_fashionmnist_n_devices_'+str(n_devices)+'.pt')
     model = WirelessSplitNet(next_layer_neurons, pre_layer_neurons, device=device).to(device)
     wireless_split_net_dict = model.state_dict()
+    # print(model_state_dict.keys())
+    # print(wireless_split_net_dict.keys())
     # print(wireless_split_net_dict['cut_layer.0.0.weight'].shape)
     new_dict = {k: v for k, v in model_state_dict.items() if k in wireless_split_net_dict.keys()}
     fc2_weights = model_state_dict['fc2.weight']
     fc2_bias = model_state_dict['fc2.bias']
     model.cut_layer_bias = fc2_bias.to(device)
     fc2_weights_list = torch.split(fc2_weights, next_layer_neurons.tolist(), dim=1)
+    # print(fc2_weights_list)
     for i in range(len(next_layer_neurons)):
         key = 'cut_layer.' + str(i) + '.0.weight'
         new_dict[key] = fc2_weights_list[i]
@@ -256,13 +314,18 @@ if __name__ == '__main__':
 
     # system parameters
     J = 32
-    K = 50
+    K = 32
     m = 5
-    P = 20
+    P = 10
     # tau2_list = [0.1, 0.3, 0.5, 0.7, 0.9, 1.1, 1.3, 1.5]
-    tau2_list = [0.1, 0.5, 0.9, 1.3, 1.7, 2.1, 2.5]
+    tau2_list = [0.02, 0.04, 0.06, 0.08, 0.1]
+    # tau2_list = [2]
     w_mat = numpy.zeros((n_devices, J))
+    # distance_list = numpy.random.randint(1, 20, size=n_devices)
     h_mat = abs(numpy.random.randn(n_devices, K, m))
+    # for n in range(n_devices):
+    #     PL = (10 ** 3) * ((distance_list[n] / 1) ** (-3.76))
+    #     h_mat[n] = distance_list[n] * h_mat[n] / 10
     for n in range(n_devices):
         for j in range(J):
             tmp = 0
@@ -270,22 +333,24 @@ if __name__ == '__main__':
                 tmp += fc2_weights_list[n][j, i] ** 2
             w_mat[n, j] = tmp
 
-    repeat = 2
+    repeat = 5
     data_name = 'fashionMNIST'
     # data_name = 'cifar10'
     legends = ['Scheme 1', 'Scheme 2', 'Scheme 3']
     results = numpy.zeros((3, repeat, len(tau2_list)))
 
     for i in range(len(tau2_list)):
+        print('---noise variance: '+str(tau2_list[i]))
         for r in range(repeat):
             model.set_system_params(w_mat, h_mat, tau2_list[i], P, OPTIMIZED)
             results[0, r, i] = test(model, device, test_loader)
             model.set_system_params(w_mat, h_mat, tau2_list[i], P, RANDOM)
             results[1, r, i] = test(model, device, test_loader)
-            pure_model = MultiModalityNet(next_layer_neurons, pre_layer_neurons, tau2=0., device=device,
-                                          dataset='FashionMNIST').to(device)
-            pure_model.load_state_dict(model_state_dict)
-            results[2, r, i] = test(pure_model, device, test_loader)
+            model.set_system_params(w_mat, h_mat, tau2_list[i], P, PURE)
+            # pure_model = MultiModalityNet(next_layer_neurons, pre_layer_neurons, tau2=0., device=device,
+            #                               dataset='FashionMNIST').to(device)
+            # pure_model.load_state_dict(model_state_dict)
+            results[2, r, i] = test(model, device, test_loader)
     out_file_name = home_dir + 'Outputs/aircomp_based_split_inference_' + data_name + '_repeat_' + str(
         repeat) + '_results.npz'
     numpy.savez(out_file_name, res=results)

@@ -122,7 +122,7 @@ class MultiModalityNet(nn.Module):
         for i in range(len(self.next_layer_neurons)):
             x_data = x_list[i]
             sub_model_output = self.sub_models[i](x_data)
-            print('sub_model_output', sub_model_output.shape)
+            # print('sub_model_output', sub_model_output.shape)
 
             sub_model_output = self.layer_norms[i](sub_model_output)
             # print(torch.mean(sub_model_output))

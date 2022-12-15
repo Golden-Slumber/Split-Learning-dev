@@ -53,29 +53,36 @@ class WirelessSplitNet(nn.Module):
         self.fc4 = nn.Linear(98, 49, bias=True)
         self.output = nn.Linear(49, 10, bias=True)
 
-    def set_system_params(self, w_mat, h_mat, tau2, P, mode):
+    def set_system_params(self, w_mat, h_mat, tau2, P, mode, eta=None):
         self.w_mat = w_mat
         self.h_mat = h_mat
         self.tau2 = tau2
         self.P = P
         self.mode = mode
+        mse = 0
         if self.mode != PURE:
             if self.mode == OPTIMIZED:
-                tmp_indicator_mat, tmp_b_mat, tmp_a_list = alternating_optimization_framework(self.w_mat, self.h_mat,
-                                                                                              self.tau2, self.P)
+                tmp_indicator_mat, tmp_b_mat, tmp_a_list, mse = alternating_optimization_framework(self.w_mat, self.h_mat,
+                                                                                              self.tau2, self.P, eta=eta)
             elif self.mode == RANDOM:
-                tmp_indicator_mat, tmp_b_mat, tmp_a_list = fixed_subcarrier_allocation(self.w_mat, self.h_mat,
+                tmp_indicator_mat, tmp_b_mat, tmp_a_list, mse = fixed_subcarrier_allocation(self.w_mat, self.h_mat,
                                                                                        self.tau2, self.P)
             elif self.mode == RANDOM2:
-                tmp_indicator_mat, tmp_b_mat, tmp_a_list = random_system_param_v2(self.w_mat, self.h_mat,
+                tmp_indicator_mat, tmp_b_mat, tmp_a_list, mse = random_system_param_v2(self.w_mat, self.h_mat,
                                                                                        self.tau2, self.P)
             # print(tmp_indicator_mat)
             # print(tmp_b_mat)
             # print(tmp_a_list)
+            self.indicator_mat = None
+            self.b_mat = None
+            self.a_list = list()
+
             self.indicator_mat = torch.from_numpy(tmp_indicator_mat).to(self.device)
             self.b_mat = torch.from_numpy(tmp_b_mat).to(self.device)
             for j in range(32):
                 self.a_list.append(torch.from_numpy(tmp_a_list[j]).to(self.device))
+
+        return mse
 
     def forward(self, x):
         x = x.view(-1, 784)
@@ -111,12 +118,13 @@ class WirelessSplitNet(nn.Module):
                         if self.indicator_mat[j, k] == 1:
                             h_vec[j] = torch.sum(torch.mm(self.a_list[j].T, tmp_h_mat[n, k].reshape((5, 1))))
                 received_signal += torch.multiply(transmit_signal, h_vec)
-            noise = torch.normal(0, self.tau2, (1000, 32, 5)).to(self.device)
+            noise = torch.normal(0, self.tau2, (32, 5)).to(self.device)
             scaled_noise = torch.zeros(received_signal.shape).to(self.device)
-            for i in range(1000):
-                for j in range(32):
-                    scaled_noise[i, j] = torch.sum(torch.mm(self.a_list[j].T.float(), noise[i, j].reshape((5, 1))))
-            received_signal = received_signal + scaled_noise
+            # for j in range(32):
+            #     scaled_noise[:, j] = torch.sum(torch.mm(self.a_list[j].T.float(), noise[j].reshape((5, 1))))
+            # received_signal = received_signal + scaled_noise
+            for j in range(32):
+                received_signal[:, j] += torch.sum(torch.mm(self.a_list[j].T.float(), noise[j].reshape((5, 1))))
             x = received_signal + self.cut_layer_bias
             x = self.relu(x)
         else:
@@ -193,7 +201,7 @@ def get_num_neurons(neurons_vectors, idx):
     return cnt
 
 
-def plot_results(res, tau2_list, data_name, legends):
+def plot_results(res, obj, tau2_list, data_name, legends):
     fig = plt.figure(figsize=(10, 8))
     matplotlib.rcParams['mathtext.fontset'] = 'stix'
     matplotlib.rcParams['font.family'] = 'STIXGeneral'
@@ -212,7 +220,29 @@ def plot_results(res, tau2_list, data_name, legends):
     plt.tight_layout()
     plt.grid()
 
-    image_name = home_dir + 'Outputs/aircomp_based_inference_' + data_name + '.pdf'
+    image_name = home_dir + 'Outputs/aircomp_based_inference_' + data_name + '_accuracy_1.pdf'
+    fig.savefig(image_name, format='pdf', dpi=1200)
+    plt.show()
+
+    fig = plt.figure(figsize=(10, 8))
+    matplotlib.rcParams['mathtext.fontset'] = 'stix'
+    matplotlib.rcParams['font.family'] = 'STIXGeneral'
+
+    line_list = []
+    for i in range(len(legends)):
+        line, = plt.plot(tau2_list, numpy.median(obj[i], axis=0), color=color_list[i], linestyle='-',
+                         marker=marker_list[i],
+                         markerfacecolor='none', ms=7, markeredgewidth=2.5, linewidth=2.5, markevery=1)
+        line_list.append(line)
+    plt.legend(line_list, legends, fontsize=15)
+    plt.xticks(tau2_list)
+    plt.xlabel(r"$\sigma^{2}$", fontsize=20)
+    plt.ylabel('Objective Value', fontsize=20)
+    # plt.gca().yaxis.set_major_formatter(PercentFormatter(1))
+    plt.tight_layout()
+    plt.grid()
+
+    image_name = home_dir + 'Outputs/aircomp_based_inference_' + data_name + '_objective_1.pdf'
     fig.savefig(image_name, format='pdf', dpi=1200)
     plt.show()
 
@@ -318,8 +348,12 @@ if __name__ == '__main__':
     m = 5
     P = 10
     # tau2_list = [0.1, 0.3, 0.5, 0.7, 0.9, 1.1, 1.3, 1.5]
-    tau2_list = [0.02, 0.04, 0.06, 0.08, 0.1]
-    # tau2_list = [2]
+    # tau2_list = [0.02, 0.04, 0.06, 0.08, 0.1]
+    # tau2_list = [0.02, 0.22, 0.42, 0.62, 0.82]
+    tau2_list = [0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5]
+    # tau2_list = [0.82]
+    # eta_list = [0.27, 0.2, 0.1, 0.05, 0.08]
+    eta_list = [0.08, 0.05, 0.02, 0.01, 0.008, 0.005, 0.002, 0.001, 0.0008, 0.0005]
     w_mat = numpy.zeros((n_devices, J))
     # distance_list = numpy.random.randint(1, 20, size=n_devices)
     h_mat = abs(numpy.random.randn(n_devices, K, m))
@@ -333,25 +367,26 @@ if __name__ == '__main__':
                 tmp += fc2_weights_list[n][j, i] ** 2
             w_mat[n, j] = tmp
 
-    repeat = 5
+    repeat = 1
     data_name = 'fashionMNIST'
     # data_name = 'cifar10'
     legends = ['Scheme 1', 'Scheme 2', 'Scheme 3']
     results = numpy.zeros((3, repeat, len(tau2_list)))
+    objectives = numpy.zeros((3, repeat, len(tau2_list)))
 
     for i in range(len(tau2_list)):
         print('---noise variance: '+str(tau2_list[i]))
         for r in range(repeat):
-            model.set_system_params(w_mat, h_mat, tau2_list[i], P, OPTIMIZED)
+            objectives[0, r, i] = model.set_system_params(w_mat, h_mat, tau2_list[i], P, OPTIMIZED, eta=eta_list[i])
             results[0, r, i] = test(model, device, test_loader)
-            model.set_system_params(w_mat, h_mat, tau2_list[i], P, RANDOM)
+            objectives[1, r, i] = model.set_system_params(w_mat, h_mat, tau2_list[i], P, RANDOM)
             results[1, r, i] = test(model, device, test_loader)
-            model.set_system_params(w_mat, h_mat, tau2_list[i], P, PURE)
+            objectives[2, r, i] = model.set_system_params(w_mat, h_mat, tau2_list[i], P, PURE)
             # pure_model = MultiModalityNet(next_layer_neurons, pre_layer_neurons, tau2=0., device=device,
             #                               dataset='FashionMNIST').to(device)
             # pure_model.load_state_dict(model_state_dict)
             results[2, r, i] = test(model, device, test_loader)
     out_file_name = home_dir + 'Outputs/aircomp_based_split_inference_' + data_name + '_repeat_' + str(
         repeat) + '_results.npz'
-    numpy.savez(out_file_name, res=results)
-    plot_results(results, tau2_list, data_name, legends)
+    numpy.savez(out_file_name, res=results, obj=objectives)
+    plot_results(results, objectives, tau2_list, data_name, legends)

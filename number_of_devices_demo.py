@@ -169,8 +169,8 @@ if __name__ == '__main__':
     K = 32
     m = 5
     P = 10
-    tau2_list = [0]
-    eta_list = [0]
+    tau2_list = [1, 2, 4]
+    eta_list = [5e-5, 4e-5, 2e-5]
     number_of_devices_list = [2, 4, 6, 8, 10, 12, 14]
     w_mat = numpy.zeros((n_devices, J))
     ini_h_mat = abs(numpy.random.randn(n_devices, K, m))
@@ -180,7 +180,7 @@ if __name__ == '__main__':
             for i in range(next_layer_neurons[n]):
                 tmp += fc2_weights_list[n][j, i] ** 2
             w_mat[n, j] = tmp
-    repeat = 20
+    repeat = 25
     data_name = 'fashionMNIST'
     # data_name = 'cifar10'
     legends = ['Scheme 1', 'Scheme 2']
@@ -214,8 +214,8 @@ if __name__ == '__main__':
                 for perm_iter in range(number_of_devices_list[i]):
                     active_devices.append(random_permutation[perm_iter])
 
-                # objectives[0, r, i] = model.set_system_params(w_mat, h_mat, tau2_list[iter_tau2], P, OPTIMIZED, eta=eta_list[iter_tau2])
-                objectives[0, r, i] = model.set_system_params(w_mat, h_mat, tau2_list[iter_tau2], P, PURE)
+                objectives[0, r, i] = model.set_system_params(w_mat, h_mat, tau2_list[iter_tau2], P, OPTIMIZED, eta=eta_list[iter_tau2])
+                # objectives[0, r, i] = model.set_system_params(w_mat, h_mat, tau2_list[iter_tau2], P, PURE)
                 model.set_active_devices(active_devices)
                 stored_objectives[0, i] = objectives[0, r, i]
                 results[0, r, i] = test(model, device, test_loader)
@@ -234,7 +234,7 @@ if __name__ == '__main__':
                 # stored_results[2, i] = results[2, r, i]
 
             out_file_name = home_dir + 'Outputs/number_of_devices_demo_' + data_name + '_tau2_' + str(
-                tau2_list[iter_tau2]) + '_repeat_' + str(r) + '_partial_results.npz'
+                tau2_list[iter_tau2]) + '_repeat_' + str(r+50) + '_partial_results.npz'
             numpy.savez(out_file_name, res=stored_results, obj=stored_objectives)
         out_file_name = home_dir + 'Outputs/number_of_devices_demo_' + data_name + '_tau2_' + str(
             tau2_list[iter_tau2]) + '_repeat_' + str(repeat) + '_total_results.npz'

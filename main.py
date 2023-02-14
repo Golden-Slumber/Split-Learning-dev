@@ -59,21 +59,25 @@ if __name__ == '__main__':
     # plt.plot(t, sig11+sig12+sig13+sig21+sig22+sig23+sig31+sig32+sig33, color='dimgrey', linewidth='8')
     # plt.show()
 
-    data_name = 'fashionMNIST'
-    # data_name = 'cifar10'
-    legends = ['Scheme 1', 'Scheme 2']
-    repeat = 1
-    tau2_list = [0.02, 0.22, 0.42, 0.62, 0.82]
-    results = numpy.zeros((2, repeat, len(tau2_list)))
+    # data_name = 'fashionMNIST'
+    # # data_name = 'cifar10'
+    # legends = ['Scheme 1', 'Scheme 2']
+    # repeat = 1
+    # tau2_list = [0.02, 0.22, 0.42, 0.62, 0.82]
+    # results = numpy.zeros((2, repeat, len(tau2_list)))
+    #
+    # scheme1 = [154.42208675345827, 316.0439205164859, 331.08136655992365, 333.7328386683281, 333.13249448939393]
+    # scheme2 = [74.73877607398234, 78.39302382216226, 81.96748537173329, 85.4647381796685, 88.88724977761848]
+    #
+    # for r in range(repeat):
+    #     for i in range(len(tau2_list)):
+    #         results[0, r, i] = scheme1[i]
+    #         results[1, r, i] = scheme2[i]
+    #
+    # plot_results(results, tau2_list, data_name, legends)
 
-    scheme1 = [154.42208675345827, 316.0439205164859, 331.08136655992365, 333.7328386683281, 333.13249448939393]
-    scheme2 = [74.73877607398234, 78.39302382216226, 81.96748537173329, 85.4647381796685, 88.88724977761848]
-
-    for r in range(repeat):
-        for i in range(len(tau2_list)):
-            results[0, r, i] = scheme1[i]
-            results[1, r, i] = scheme2[i]
-
-    plot_results(results, tau2_list, data_name, legends)
+    perm = numpy.random.permutation(5)
+    print(perm)
+    print(perm[2])
 
 # See PyCharm help at https://www.jetbrains.com/help/pycharm/

@@ -13,7 +13,8 @@ from matplotlib.ticker import PercentFormatter
 from constants import *
 from multi_modality_nural_network import MultiModalityNet
 from system_optimization import alternating_optimization_v2, random_system_param, alternating_optimization_v3
-from revised_system_optimization import alternating_optimization_framework, fixed_subcarrier_allocation, random_system_param_v2
+from revised_system_optimization import alternating_optimization_framework, fixed_subcarrier_allocation, \
+    random_system_param_v2
 
 home_dir = './'
 sys.path.append(home_dir)
@@ -62,11 +63,13 @@ class WirelessSplitNet(nn.Module):
         mse = 0
         if self.mode != PURE:
             if self.mode == OPTIMIZED:
-                tmp_indicator_mat, tmp_b_mat, tmp_a_list, mse = alternating_optimization_framework(self.w_mat, self.h_mat,
-                                                                                              self.tau2, self.P, eta=eta)
+                tmp_indicator_mat, tmp_b_mat, tmp_a_list, mse = alternating_optimization_framework(self.w_mat,
+                                                                                                   self.h_mat,
+                                                                                                   self.tau2, self.P,
+                                                                                                   eta=eta)
             elif self.mode == RANDOM:
                 tmp_indicator_mat, tmp_b_mat, tmp_a_list, mse = fixed_subcarrier_allocation(self.w_mat, self.h_mat,
-                                                                                       self.tau2, self.P)
+                                                                                            self.tau2, self.P)
             elif self.mode == RANDOM2:
                 tmp_indicator_mat, tmp_b_mat, tmp_a_list, mse = random_system_param_v2(self.w_mat, self.h_mat,
                                                                                        self.tau2, self.P)
@@ -322,7 +325,7 @@ if __name__ == '__main__':
     # FashionMNIST_training(args, n_devices, next_layer_neurons, pre_layer_neurons)
 
     # load model
-    model_state_dict = torch.load('multi_modality_fashionmnist_n_devices_'+str(n_devices)+'.pt')
+    model_state_dict = torch.load('multi_modality_fashionmnist_n_devices_' + str(n_devices) + '.pt')
     model = WirelessSplitNet(next_layer_neurons, pre_layer_neurons, device=device).to(device)
     wireless_split_net_dict = model.state_dict()
     # print(model_state_dict.keys())
@@ -350,16 +353,22 @@ if __name__ == '__main__':
     # tau2_list = [0.1, 0.3, 0.5, 0.7, 0.9, 1.1, 1.3, 1.5]
     # tau2_list = [0.02, 0.04, 0.06, 0.08, 0.1]
     # tau2_list = [0.02, 0.22, 0.42, 0.62, 0.82]
-    tau2_list = [0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5]
+    # tau2_list = [0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5]
+    tau2_list = [1, 2, 3, 4, 5, 6, 7, 8]
+    # tau2_list = [0.5, 1, 1.5, 2, 2.5, 3]
+    # tau2_list = [1.5]
+    # tau2_list = [2, 4, 6, 8, 10, 12, 14, 16]
     # tau2_list = [0.82]
     # eta_list = [0.27, 0.2, 0.1, 0.05, 0.08]
-    eta_list = [0.08, 0.05, 0.02, 0.01, 0.008, 0.005, 0.002, 0.001, 0.0008, 0.0005]
+    # eta_list = [0.08, 0.05, 0.02, 0.01, 0.008, 0.005, 0.002, 0.001, 0.0008, 0.0005]
+    # eta_list = [0.05, 0.01, 0.005, 0.001, 0.0005]
+    # eta_list = [0.0005, 0.0005, 0.0001, 0.0001, 0.00005, 0.00005, 0.00001, 0.00001]
+    # eta_list = [5e-5, 4e-5, 3e-5, 2e-5, 1e-5, 5e-6]
+    # eta_list = [3e-5]
+    eta_list = [5e-5, 4e-5, 3e-5, 2e-5, 1e-5, 5e-6, 4e-6, 3e-6]
     w_mat = numpy.zeros((n_devices, J))
-    # distance_list = numpy.random.randint(1, 20, size=n_devices)
-    h_mat = abs(numpy.random.randn(n_devices, K, m))
-    # for n in range(n_devices):
-    #     PL = (10 ** 3) * ((distance_list[n] / 1) ** (-3.76))
-    #     h_mat[n] = distance_list[n] * h_mat[n] / 10
+    # distance_list = numpy.random.randint(100, 120, size=n_devices)
+    ini_h_mat = abs(numpy.random.randn(n_devices, K, m))
     for n in range(n_devices):
         for j in range(J):
             tmp = 0
@@ -367,26 +376,54 @@ if __name__ == '__main__':
                 tmp += fc2_weights_list[n][j, i] ** 2
             w_mat[n, j] = tmp
 
-    repeat = 1
+    repeat = 5
     data_name = 'fashionMNIST'
     # data_name = 'cifar10'
     legends = ['Scheme 1', 'Scheme 2', 'Scheme 3']
     results = numpy.zeros((3, repeat, len(tau2_list)))
     objectives = numpy.zeros((3, repeat, len(tau2_list)))
+    stored_results = numpy.zeros((3, len(tau2_list)))
+    stored_objectives = numpy.zeros((3, len(tau2_list)))
 
-    for i in range(len(tau2_list)):
-        print('---noise variance: '+str(tau2_list[i]))
-        for r in range(repeat):
+    for r in range(repeat):
+        h_mat = ini_h_mat.copy()
+        for n in range(n_devices):
+            # subcarrier_scale_list = 4.5 * numpy.random.random_sample(K) + 0.5
+            subcarrier_scale_list = numpy.zeros(K)
+            subcarrier_scale_list[0:int(K / 4)] = 0.1 * numpy.random.random_sample(int(K / 4)) + 0.1
+            # subcarrier_scale_list[int(K / 8):] = 10 * numpy.random.random_sample(K - int(K / 8)) + 10
+            subcarrier_scale_list[int(K / 4):] = 1
+            subcarrier_scale_list = subcarrier_scale_list[numpy.random.permutation(K)]
+            tmp_subcarrier_scale_list = subcarrier_scale_list[numpy.random.permutation(K)]
+            # PL = (10 ** 7) * ((distance_list[n] / 1) ** (-3.76))
+            # h_mat[n] = PL * h_mat[n]
+            for k in range(K):
+                h_mat[n, k] = subcarrier_scale_list[k] * h_mat[n, k]
+            # print(h_mat[n])
+
+        for i in range(len(tau2_list)):
+            print('---noise variance: ' + str(tau2_list[i]))
+
             objectives[0, r, i] = model.set_system_params(w_mat, h_mat, tau2_list[i], P, OPTIMIZED, eta=eta_list[i])
+            stored_objectives[0, i] = objectives[0, r, i]
             results[0, r, i] = test(model, device, test_loader)
+            stored_results[0, i] = results[0, r, i]
             objectives[1, r, i] = model.set_system_params(w_mat, h_mat, tau2_list[i], P, RANDOM)
+            stored_objectives[1, i] = objectives[1, r, i]
             results[1, r, i] = test(model, device, test_loader)
+            stored_results[1, i] = results[1, r, i]
             objectives[2, r, i] = model.set_system_params(w_mat, h_mat, tau2_list[i], P, PURE)
+            stored_objectives[2, i] = objectives[2, r, i]
             # pure_model = MultiModalityNet(next_layer_neurons, pre_layer_neurons, tau2=0., device=device,
             #                               dataset='FashionMNIST').to(device)
             # pure_model.load_state_dict(model_state_dict)
             results[2, r, i] = test(model, device, test_loader)
+            stored_results[2, i] = results[2, r, i]
+
+        out_file_name = home_dir + 'Outputs/aircomp_based_split_inference_' + data_name + '_repeat_' + str(
+            r) + '_partial_results.npz'
+        numpy.savez(out_file_name, res=stored_results, obj=stored_objectives)
     out_file_name = home_dir + 'Outputs/aircomp_based_split_inference_' + data_name + '_repeat_' + str(
-        repeat) + '_results.npz'
+        repeat) + '_total_results.npz'
     numpy.savez(out_file_name, res=results, obj=objectives)
     plot_results(results, objectives, tau2_list, data_name, legends)

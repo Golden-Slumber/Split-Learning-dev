@@ -165,7 +165,7 @@ def transmission_power_optimization(w_mat, h_mat, indicator_mat, a_list, P, pre_
                 square_alpha_mat[n, j, k] = alpha_mat[n, j, k] ** 2
 
     pre_obj = 1e8
-    eta = 0.05
+    eta = 0.01
 
     for it in range(max_iter):
         # multipler update
@@ -364,6 +364,7 @@ def alternating_optimization_framework(w_mat, h_mat, sigma, P, eta=None, max_ite
             b_mat[n, j] = numpy.sqrt(P / J / w_mat[n, j])
     a_list = beamforming_optimization(w_mat, h_mat, indicator_mat, b_mat, sigma)
     pre_obj = 1e6
+    pre_indicator = numpy.zeros((J, K))
 
     for it in tqdm(range(max_iter)):
         # subcarrier allocation
@@ -381,6 +382,9 @@ def alternating_optimization_framework(w_mat, h_mat, sigma, P, eta=None, max_ite
         print('iter ' + str(it) + ': objective: ' + str(new_obj))
         print(indicator_mat)
         check_constraints(indicator_mat, w_mat, b_mat, P)
+        if numpy.linalg.norm(pre_indicator - indicator_mat) == 0:
+            break
+        pre_indicator = indicator_mat.copy()
         if abs(new_obj - pre_obj) < 1e-6:
             break
         pre_obj = new_obj

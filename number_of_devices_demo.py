@@ -180,7 +180,7 @@ if __name__ == '__main__':
             for i in range(next_layer_neurons[n]):
                 tmp += fc2_weights_list[n][j, i] ** 2
             w_mat[n, j] = tmp
-    repeat = 25
+    repeat = 10
     data_name = 'fashionMNIST'
     # data_name = 'cifar10'
     legends = ['Scheme 1', 'Scheme 2']
@@ -220,6 +220,7 @@ if __name__ == '__main__':
                 stored_objectives[0, i] = objectives[0, r, i]
                 results[0, r, i] = test(model, device, test_loader)
                 stored_results[0, i] = results[0, r, i]
+
                 objectives[1, r, i] = model.set_system_params(w_mat, h_mat, tau2_list[iter_tau2], P, PURE)
                 model.set_active_devices(range(n_devices))
                 stored_objectives[1, i] = objectives[1, r, i]
@@ -234,7 +235,7 @@ if __name__ == '__main__':
                 # stored_results[2, i] = results[2, r, i]
 
             out_file_name = home_dir + 'Outputs/number_of_devices_demo_' + data_name + '_tau2_' + str(
-                tau2_list[iter_tau2]) + '_repeat_' + str(r+50) + '_partial_results.npz'
+                tau2_list[iter_tau2]) + '_repeat_' + str(r+40) + '_partial_results.npz'
             numpy.savez(out_file_name, res=stored_results, obj=stored_objectives)
         out_file_name = home_dir + 'Outputs/number_of_devices_demo_' + data_name + '_tau2_' + str(
             tau2_list[iter_tau2]) + '_repeat_' + str(repeat) + '_total_results.npz'

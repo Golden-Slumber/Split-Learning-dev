@@ -107,8 +107,8 @@ class MultiModalityNet(nn.Module):
             self.fc4 = nn.Linear(98, 49, bias=True)
             self.output = nn.Linear(49, 10, bias=True)
         elif dataset == 'cifar10':
-            self.fc2 = nn.Linear(1536, 768)
-            self.fc3 = nn.Linear(768, 192, bias=True)
+            self.fc2 = nn.Linear(768, 32)
+            self.fc3 = nn.Linear(32, 192, bias=True)
             self.fc4 = nn.Linear(192, 48, bias=True)
             self.output = nn.Linear(48, 10, bias=True)
 

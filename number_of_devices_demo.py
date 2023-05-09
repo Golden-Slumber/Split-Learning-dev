@@ -16,12 +16,13 @@ from system_optimization import alternating_optimization_v2, random_system_param
 from revised_system_optimization import alternating_optimization_framework, fixed_subcarrier_allocation, \
     random_system_param_v2
 from split_inference import WirelessSplitNet, train, test, split_layer, get_num_neurons, FashionMNIST_training
+from cifar10_demo import WirelessSplitNetV2
 
 home_dir = './'
 sys.path.append(home_dir)
 
 
-class SplitNetVersusDevices(WirelessSplitNet):
+class SplitNetVersusDevices(WirelessSplitNetV2):
     def __init__(self, next_layer_neurons, pre_layer_neurons, device=None):
         super(SplitNetVersusDevices, self).__init__(next_layer_neurons, pre_layer_neurons, device=device)
         self.active_devices = None
@@ -30,7 +31,8 @@ class SplitNetVersusDevices(WirelessSplitNet):
         self.active_devices = active_devices
 
     def forward(self, x):
-        x = x.view(-1, 784)
+        # x = x.view(-1, 784)
+        x = x.view(-1, 3072)
         x_list = torch.split(x, self.pre_layer_neurons.tolist(), dim=1)
         # fc1_output = None
 
@@ -110,7 +112,8 @@ def plot_results(res, number_of_devices_list, tau2, data_name, legends):
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Fashion MNIST')
+    # parser = argparse.ArgumentParser(description='Fashion MNIST')
+    parser = argparse.ArgumentParser(description='cifar10')
     parser.add_argument('--batch-size', type=int, default=64, metavar='N',
                         help='input batch size for training (default: 64)')
     parser.add_argument('--test-batch-size', type=int, default=1000, metavar='N',
@@ -123,9 +126,13 @@ if __name__ == '__main__':
     parser.add_argument('--log-interval', type=int, default=10, metavar='N',
                         help='how many batches to wait before logging training status')
     parser.add_argument('--save-model', action='store_true', default=True, help='For Saving the current model')
-    parser.add_argument('--input_num_neurons', type=int, default=784, metavar='N',
+    # parser.add_argument('--input_num_neurons', type=int, default=784, metavar='N',
+    #                     help='number of neurons in the input layer')
+    # parser.add_argument('--fc1_num_neurons', type=int, default=392, metavar='N',
+    #                     help='number of neurons in the fc1 layer')
+    parser.add_argument('--input_num_neurons', type=int, default=3072, metavar='N',
                         help='number of neurons in the input layer')
-    parser.add_argument('--fc1_num_neurons', type=int, default=392, metavar='N',
+    parser.add_argument('--fc1_num_neurons', type=int, default=768, metavar='N',
                         help='number of neurons in the fc1 layer')
     args = parser.parse_args()
 
@@ -133,21 +140,29 @@ if __name__ == '__main__':
     torch.manual_seed(args.seed)
     device = torch.device("cuda" if use_cuda else "cpu")
     kwargs = {'num_workers': 1, 'pin_memory': True} if use_cuda else {}
-    test_loader = DataLoader(datasets.FashionMNIST(root='./Resources/', train=False,
-                                                   transform=transforms.Compose(
-                                                       [transforms.ToTensor(), transforms.Normalize((0.1307,),
-                                                                                                    (0.3081,))])),
+    # test_loader = DataLoader(datasets.FashionMNIST(root='./Resources/', train=False,
+    #                                                transform=transforms.Compose(
+    #                                                    [transforms.ToTensor(), transforms.Normalize((0.1307,),
+    #                                                                                                 (0.3081,))])),
+    #                          batch_size=args.test_batch_size, shuffle=True, **kwargs)
+    test_loader = DataLoader(datasets.CIFAR10(root='./Resources/', train=False, download=False,
+                                              transform=transforms.Compose(
+                                                  [transforms.ToTensor(), transforms.Normalize((0.5, 0.5, 0.5),
+                                                                                               (0.5, 0.5, 0.5))])),
                              batch_size=args.test_batch_size, shuffle=True, **kwargs)
 
     n_devices = 14
     # unbalanced
-    next_layer_neurons_list = [21, 28, 35, 21, 28, 35, 21, 28, 35, 21, 28, 35, 28, 28]
-    pre_layer_neurons_list = [42, 56, 70, 42, 56, 70, 42, 56, 70, 42, 56, 70, 56, 56]
+    # next_layer_neurons_list = [21, 28, 35, 21, 28, 35, 21, 28, 35, 21, 28, 35, 28, 28]
+    # pre_layer_neurons_list = [42, 56, 70, 42, 56, 70, 42, 56, 70, 42, 56, 70, 56, 56]
+    next_layer_neurons_list = [45, 55, 65, 65, 45, 55, 55, 65, 45, 45, 53, 65, 45, 65]
+    pre_layer_neurons_list = [180, 220, 260, 260, 180, 220, 220, 260, 180, 180, 212, 260, 180, 260]
     next_layer_neurons = numpy.array(next_layer_neurons_list)
     pre_layer_neurons = numpy.array(pre_layer_neurons_list)
 
     # load model
-    model_state_dict = torch.load('multi_modality_fashionmnist_n_devices_' + str(n_devices) + '.pt')
+    # model_state_dict = torch.load('multi_modality_fashionmnist_n_devices_' + str(n_devices) + '.pt')
+    model_state_dict = torch.load('multi_modality_cifar10_n_devices_' + str(n_devices) + '.pt')
     model = SplitNetVersusDevices(next_layer_neurons, pre_layer_neurons, device=device).to(device)
     wireless_split_net_dict = model.state_dict()
     new_dict = {k: v for k, v in model_state_dict.items() if k in wireless_split_net_dict.keys()}
@@ -169,8 +184,12 @@ if __name__ == '__main__':
     K = 32
     m = 5
     P = 10
-    tau2_list = [1, 2, 4]
-    eta_list = [5e-5, 4e-5, 2e-5]
+    # tau2_list = [1, 2, 4]
+    # eta_list = [5e-5, 4e-5, 2e-5]
+    # tau2_list = [0.1, 1, 2.2]
+    # eta_list = [6e-5, 5e-5, 4e-5]
+    tau2_list = [4]
+    eta_list = [2e-5]
     number_of_devices_list = [2, 4, 6, 8, 10, 12, 14]
     w_mat = numpy.zeros((n_devices, J))
     ini_h_mat = abs(numpy.random.randn(n_devices, K, m))
@@ -181,8 +200,8 @@ if __name__ == '__main__':
                 tmp += fc2_weights_list[n][j, i] ** 2
             w_mat[n, j] = tmp
     repeat = 10
-    data_name = 'fashionMNIST'
-    # data_name = 'cifar10'
+    # data_name = 'fashionMNIST'
+    data_name = 'cifar10'
     legends = ['Scheme 1', 'Scheme 2']
     results = numpy.zeros((2, repeat, len(number_of_devices_list)))
     objectives = numpy.zeros((2, repeat, len(number_of_devices_list)))
@@ -235,7 +254,7 @@ if __name__ == '__main__':
                 # stored_results[2, i] = results[2, r, i]
 
             out_file_name = home_dir + 'Outputs/number_of_devices_demo_' + data_name + '_tau2_' + str(
-                tau2_list[iter_tau2]) + '_repeat_' + str(r+40) + '_partial_results.npz'
+                tau2_list[iter_tau2]) + '_repeat_' + str(r) + '_partial_results.npz'
             numpy.savez(out_file_name, res=stored_results, obj=stored_objectives)
         out_file_name = home_dir + 'Outputs/number_of_devices_demo_' + data_name + '_tau2_' + str(
             tau2_list[iter_tau2]) + '_repeat_' + str(repeat) + '_total_results.npz'

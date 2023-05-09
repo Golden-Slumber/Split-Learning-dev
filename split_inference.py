@@ -378,8 +378,10 @@ if __name__ == '__main__':
     legends = ['Scheme 1', 'Scheme 2', 'Scheme 3']
     results = numpy.zeros((3, repeat, len(tau2_list)))
     objectives = numpy.zeros((3, repeat, len(tau2_list)))
-    stored_results = numpy.zeros((3, len(tau2_list)))
-    stored_objectives = numpy.zeros((3, len(tau2_list)))
+    # stored_results = numpy.zeros((3, len(tau2_list)))
+    # stored_objectives = numpy.zeros((3, len(tau2_list)))
+    stored_results = numpy.zeros((1, len(tau2_list)))
+    stored_objectives = numpy.zeros((1, len(tau2_list)))
 
     for r in range(repeat):
         # h_mat = abs(numpy.random.randn(n_devices, K, m))
@@ -397,25 +399,27 @@ if __name__ == '__main__':
         for i in range(len(tau2_list)):
             print('---noise variance: ' + str(tau2_list[i]))
 
-            objectives[0, r, i] = model.set_system_params(w_mat, h_mat, tau2_list[i], P, OPTIMIZED, eta=eta_list[i])
+            # objectives[0, r, i] = model.set_system_params(w_mat, h_mat, tau2_list[i], P, OPTIMIZED, eta=eta_list[i])
+            objectives[0, r, i] = model.set_system_params(w_mat, h_mat, tau2_list[i], P, RANDOM2)
             stored_objectives[0, i] = objectives[0, r, i]
             results[0, r, i] = test(model, device, test_loader)
             stored_results[0, i] = results[0, r, i]
-            objectives[1, r, i] = model.set_system_params(w_mat, h_mat, tau2_list[i], P, RANDOM)
-            stored_objectives[1, i] = objectives[1, r, i]
-            results[1, r, i] = test(model, device, test_loader)
-            stored_results[1, i] = results[1, r, i]
-            objectives[2, r, i] = model.set_system_params(w_mat, h_mat, tau2_list[i], P, PURE)
-            stored_objectives[2, i] = objectives[2, r, i]
+            # objectives[1, r, i] = model.set_system_params(w_mat, h_mat, tau2_list[i], P, RANDOM)
+            # stored_objectives[1, i] = objectives[1, r, i]
+            # results[1, r, i] = test(model, device, test_loader)
+            # stored_results[1, i] = results[1, r, i]
+            # objectives[2, r, i] = model.set_system_params(w_mat, h_mat, tau2_list[i], P, PURE)
+            # stored_objectives[2, i] = objectives[2, r, i]
+
             # pure_model = MultiModalityNet(next_layer_neurons, pre_layer_neurons, tau2=0., device=device,
             #                               dataset='FashionMNIST').to(device)
             # pure_model.load_state_dict(model_state_dict)
-            results[2, r, i] = test(model, device, test_loader)
-            stored_results[2, i] = results[2, r, i]
+            # results[2, r, i] = test(model, device, test_loader)
+            # stored_results[2, i] = results[2, r, i]
         out_file_name = home_dir + 'Outputs/aircomp_based_split_inference_' + data_name + '_repeat_' + str(
-            r+50) + '_partial_results.npz'
+            r) + '_random_results.npz'
         numpy.savez(out_file_name, res=stored_results, obj=stored_objectives)
-    out_file_name = home_dir + 'Outputs/aircomp_based_split_inference_' + data_name + '_repeats_' + str(
-        repeat) + '_total_results.npz'
-    numpy.savez(out_file_name, res=results, obj=objectives)
-    plot_results(results, objectives, tau2_list, data_name, legends)
+    # out_file_name = home_dir + 'Outputs/aircomp_based_split_inference_' + data_name + '_repeats_' + str(
+    #     repeat) + '_total_results.npz'
+    # numpy.savez(out_file_name, res=results, obj=objectives)
+    # plot_results(results, objectives, tau2_list, data_name, legends)

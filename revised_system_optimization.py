@@ -291,7 +291,7 @@ def modified_subcarrier_allocation_optimization(w_mat, h_mat, a_list, b_mat, pre
                 square_alpha_mat[n, j, k] = alpha_mat[n, j, k] ** 2
     # eta_list = [0.1, 0.27]
     # eta_list = [0.1, 0.02]
-    if eta is not None:
+    if eta is None:
         eta = 0.27
     else:
         eta = eta
@@ -434,7 +434,7 @@ def random_system_param_v2(w_mat, h_mat, sigma, P):
 
     for j in range(J):
         indicator_mat[j, j] = 1
-        a_list.append(numpy.ones((m, 1)))
+        a_list.append(0.6 * numpy.ones((m, 1)))
 
     for n in range(N):
         for j in range(J):

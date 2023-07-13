@@ -14,7 +14,7 @@ from constants import *
 from multi_modality_nural_network import MultiModalityNet
 from system_optimization import alternating_optimization_v2, random_system_param, alternating_optimization_v3
 from revised_system_optimization import alternating_optimization_framework, fixed_subcarrier_allocation, \
-    random_system_param_v2
+    random_system_param_v2, BnB_alternating_optimization_framework
 
 home_dir = './'
 sys.path.append(home_dir)
@@ -73,6 +73,11 @@ class WirelessSplitNet(nn.Module):
             elif self.mode == RANDOM2:
                 tmp_indicator_mat, tmp_b_mat, tmp_a_list, mse = random_system_param_v2(self.w_mat, self.h_mat,
                                                                                        self.tau2, self.P)
+            elif self.mode == BNB:
+                tmp_indicator_mat, tmp_b_mat, tmp_a_list, mse = BnB_alternating_optimization_framework(self.w_mat,
+                                                                                                       self.h_mat,
+                                                                                                       self.tau2,
+                                                                                                       self.P)
             # print(tmp_indicator_mat)
             # print(tmp_b_mat)
             # print(tmp_a_list)
@@ -399,8 +404,8 @@ if __name__ == '__main__':
         for i in range(len(tau2_list)):
             print('---noise variance: ' + str(tau2_list[i]))
 
-            # objectives[0, r, i] = model.set_system_params(w_mat, h_mat, tau2_list[i], P, OPTIMIZED, eta=eta_list[i])
-            objectives[0, r, i] = model.set_system_params(w_mat, h_mat, tau2_list[i], P, RANDOM2)
+            objectives[0, r, i] = model.set_system_params(w_mat, h_mat, tau2_list[i], P, OPTIMIZED, eta=eta_list[i])
+            # objectives[0, r, i] = model.set_system_params(w_mat, h_mat, tau2_list[i], P, RANDOM2)
             stored_objectives[0, i] = objectives[0, r, i]
             results[0, r, i] = test(model, device, test_loader)
             stored_results[0, i] = results[0, r, i]

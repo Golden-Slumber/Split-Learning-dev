@@ -4,6 +4,7 @@ import cmath
 import cvxpy
 import numpy
 from tqdm import tqdm
+# from BnB_system_optimization import Ellipsoid_based_BnB
 
 home_dir = './'
 sys.path.append(home_dir)
@@ -371,6 +372,52 @@ def alternating_optimization_framework(w_mat, h_mat, sigma, P, eta=None, max_ite
         # indicator_mat = subcarrier_allocation_optimization(w_mat, h_mat, a_list, b_mat, pre_indicator_mat=indicator_mat, eta=eta)
         indicator_mat = modified_subcarrier_allocation_optimization(w_mat, h_mat, a_list, b_mat, pre_indicator_mat=indicator_mat,
                                                            eta=eta)
+
+        # transmission power optimization
+        b_mat = transmission_power_optimization(w_mat, h_mat, indicator_mat, a_list, P, pre_b_mat=b_mat)
+
+        # beamforming optimization
+        a_list = beamforming_optimization(w_mat, h_mat, indicator_mat, b_mat, sigma)
+
+        new_obj = objective_calculation(w_mat, h_mat, a_list, indicator_mat, b_mat, sigma)
+        print('iter ' + str(it) + ': objective: ' + str(new_obj))
+        print(indicator_mat)
+        check_constraints(indicator_mat, w_mat, b_mat, P)
+        if numpy.linalg.norm(pre_indicator - indicator_mat) == 0:
+            break
+        pre_indicator = indicator_mat.copy()
+        if abs(new_obj - pre_obj) < 1e-6:
+            break
+        pre_obj = new_obj
+
+    # indicator_mat = round_indicator_mat(indicator_mat)
+    # b_mat = transmission_power_optimization(w_mat, h_mat, indicator_mat, a_list, P, pre_b_mat=b_mat)
+    # a_list = beamforming_optimization(w_mat, h_mat, indicator_mat, b_mat, sigma)
+    # check_constraints(indicator_mat, w_mat, b_mat, P)
+    mse = original_objective_calculation(w_mat, h_mat, a_list, indicator_mat, b_mat, sigma)
+    print(mse)
+    return indicator_mat, b_mat, a_list, mse
+
+def BnB_alternating_optimization_framework(w_mat, h_mat, sigma, P, eta=None, max_iter=20):
+    N, J = w_mat.shape
+    _, K, m = h_mat.shape
+    indicator_mat = numpy.zeros((J, K))
+    b_mat = numpy.zeros((N, J))
+    for j in range(J):
+        indicator_mat[j, j] = 1
+    for n in range(N):
+        for j in range(J):
+            b_mat[n, j] = numpy.sqrt(P / J / w_mat[n, j])
+    a_list = beamforming_optimization(w_mat, h_mat, indicator_mat, b_mat, sigma)
+    pre_obj = 1e6
+    pre_indicator = numpy.zeros((J, K))
+
+    for it in tqdm(range(max_iter)):
+        # subcarrier allocation
+        # indicator_mat = subcarrier_allocation_optimization(w_mat, h_mat, a_list, b_mat, pre_indicator_mat=indicator_mat, eta=eta)
+        # indicator_mat = modified_subcarrier_allocation_optimization(w_mat, h_mat, a_list, b_mat, pre_indicator_mat=indicator_mat,
+        #                                                    eta=eta)
+        indicator_mat = Ellipsoid_based_BnB(w_mat, h_mat, a_list, b_mat)
 
         # transmission power optimization
         b_mat = transmission_power_optimization(w_mat, h_mat, indicator_mat, a_list, P, pre_b_mat=b_mat)

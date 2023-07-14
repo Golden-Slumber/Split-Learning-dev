@@ -342,6 +342,124 @@ def exhaustive_search(tau_mat, h_mat, a_list, b_mat):
     return current_optimal
 
 
+def weight_calculation(alpha_mat, beta_mat):
+    J, K = alpha_mat.shape
+    weight_mat = numpy.zeros((J, K))
+    for j in range(J):
+        for k in range(K):
+            weight_mat[j, k] = alpha_mat[j, k] ** 2 - 2 * beta_mat[j, k]
+    return weight_mat
+
+
+def Hungarian_based_subcarrier_allocation(tau_mat, h_mat, a_list, b_mat):
+    alpha_mat, beta_mat = coefficients_calculation(tau_mat, h_mat, a_list, b_mat)
+    weight_mat = weight_calculation(alpha_mat, beta_mat)
+    J, K = weight_mat.shape
+    augmented_c_mat = numpy.zeros((K, K))
+    for j in range(J):
+        for k in range(K):
+            augmented_c_mat[j, k] = weight_mat[j, k]
+    augmented_indicator_mat = numpy.zeros((K, K))
+    visited_mat = numpy.zeros((K, K))
+
+    while assignment_index(augmented_indicator_mat) < K:
+        unassigned_j = assignment_index(augmented_indicator_mat)
+        idx_list = numpy.argsort(augmented_c_mat[unassigned_j])
+        idx = 0
+        for k in range(K):
+            if visited_mat[unassigned_j, idx_list[k]] == 0:
+                idx = idx_list[k]
+                visited_mat[unassigned_j, idx] = 1
+                break
+
+        if sum(augmented_indicator_mat[:, idx]) == 0:
+            augmented_indicator_mat[unassigned_j, idx] = 1
+        else:
+            pre_j = 0
+            for j in range(K):
+                if augmented_indicator_mat[j, idx] == 1:
+                    pre_j = j
+                    break
+            if augmented_c_mat[unassigned_j, idx] < augmented_c_mat[pre_j, idx]:
+                augmented_indicator_mat[unassigned_j, idx] = 1
+                augmented_indicator_mat[pre_j, idx] = 0
+
+    indicator_mat = numpy.zeros((J, K))
+    for j in range(J):
+        for k in range(K):
+            indicator_mat[j, k] = augmented_indicator_mat[j, k]
+    return indicator_mat
+
+
+def Kuhn_Munkres_based_subcarrier_allocation(tau_mat, h_mat, a_list, b_mat):
+    alpha_mat, beta_mat = coefficients_calculation(tau_mat, h_mat, a_list, b_mat)
+    weight_mat = weight_calculation(alpha_mat, beta_mat)
+    J, K = weight_mat.shape
+    for j in range(J):
+        for k in range(K):
+            weight_mat[j, k] = -weight_mat[j, k]
+    print(weight_mat)
+    indicator_mat = numpy.zeros((J, K))
+    match_vec = numpy.zeros(K)
+    Lx = numpy.zeros(J)
+    Ly = numpy.zeros(K)
+    S = numpy.zeros(J)
+    T = numpy.zeros(K)
+
+    for j in range(J):
+        Lx[j] = -1e6
+        for k in range(K):
+            match_vec[k] = -1
+            Ly[k] = 0
+            Lx[j] = max(Lx[j], weight_mat[j, k])
+
+    for outer_j in range(J):
+        while True:
+            for j in range(J):
+                S[j] = 0
+            for k in range(K):
+                T[k] = 0
+            flag, S, T, match_vec = find_path(outer_j, S.copy(), T.copy(), Lx.copy(), Ly.copy(), weight_mat.copy(), match_vec.copy())
+            if flag:
+                break
+            else:
+                delta = 1e6
+                for j in range(J):
+                    if S[j] == 1:
+                        for k in range(K):
+                            if T[k] != 1:
+                                delta = min(delta, Lx[j] + Ly[k] - weight_mat[j, k])
+                for j in range(J):
+                    if S[j] == 1:
+                        Lx[j] -= delta
+                for k in range(K):
+                    if T[k] == 1:
+                        Ly[k] += delta
+
+    for k in range(K):
+        indicator_mat[int(match_vec[k]), k] = 1
+    print(indicator_mat)
+    return indicator_mat
+
+
+def find_path(idx, S, T, Lx, Ly, weight_mat, match_vec):
+    S[idx] = 1
+    K = T.shape[0]
+    for k in range(K):
+        if Lx[idx] + Ly[k] == weight_mat[idx, k] and T[k] != 1:
+            T[k] = 1
+            if match_vec[k] == -1:
+                match_vec[k] = idx
+                return True, S.copy(), T.copy(), match_vec.copy()
+            else:
+                flag, new_S, new_T, new_match_vec = find_path(int(match_vec[k]), S.copy(), T.copy(), Lx, Ly, weight_mat,
+                                                              match_vec.copy())
+                if flag:
+                    match_vec[k] = idx
+                    return True, new_S, new_T, new_match_vec
+    return False, S.copy(), T.copy(), match_vec.copy()
+
+
 def coefficients_calculation(tau_mat, h_mat, a_list, b_mat):
     N, J = tau_mat.shape
     _, K, m = h_mat.shape
@@ -589,8 +707,8 @@ def BnB_subcarrier_allocation(tau_mat, h_mat, a_list, b_mat, stored_value_mat, s
 
 if __name__ == '__main__':
     N = 5
-    J = 10
-    K = 10
+    J = 5
+    K = 5
     m = 5
     sigma = 1
     P = 10
@@ -648,8 +766,11 @@ if __name__ == '__main__':
     #         stored_sqaure_value_mat[j, k] = 2 * numpy.sum(numpy.multiply(tau_mat[:, j], square_alpha_mat[:, j, k]))
     # indicator_mat = BnB_subcarrier_allocation(tau_mat, h_mat, a_list, b_mat, stored_value_mat, stored_sqaure_value_mat)
     # print('BnB subcarrier allocation: ' + str(bound_calculation(tau_mat, h_mat, a_list, indicator_mat, b_mat)))
-    indicator_mat = Ellipsoid_based_DFS_BnB(tau_mat, h_mat, a_list, b_mat)
-    print('Ellipsoid-based BnB subcarrier allocation: ' + str(
+    # indicator_mat = Ellipsoid_based_DFS_BnB(tau_mat, h_mat, a_list, b_mat)
+    # print('Ellipsoid-based BnB subcarrier allocation: ' + str(
+    # bound_calculation_v2(tau_mat, h_mat, a_list, indicator_mat, b_mat)))
+    indicator_mat = Kuhn_Munkres_based_subcarrier_allocation(tau_mat, h_mat, a_list, b_mat)
+    print('Kuhn_Munkres-based subcarrier allocation: ' + str(
         bound_calculation_v2(tau_mat, h_mat, a_list, indicator_mat, b_mat)))
 
     # indicator_mat = exhaustive_search(tau_mat, h_mat, a_list, b_mat)

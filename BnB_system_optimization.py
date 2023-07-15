@@ -395,9 +395,10 @@ def Kuhn_Munkres_based_subcarrier_allocation(tau_mat, h_mat, a_list, b_mat):
     alpha_mat, beta_mat = coefficients_calculation(tau_mat, h_mat, a_list, b_mat)
     weight_mat = weight_calculation(alpha_mat, beta_mat)
     J, K = weight_mat.shape
+    max_weight = numpy.max(weight_mat)
     for j in range(J):
         for k in range(K):
-            weight_mat[j, k] = -weight_mat[j, k]
+            weight_mat[j, k] = max_weight - weight_mat[j, k]
     print(weight_mat)
     indicator_mat = numpy.zeros((J, K))
     match_vec = numpy.zeros(K)
@@ -407,7 +408,7 @@ def Kuhn_Munkres_based_subcarrier_allocation(tau_mat, h_mat, a_list, b_mat):
     T = numpy.zeros(K)
 
     for j in range(J):
-        Lx[j] = -1e6
+        Lx[j] = 0
         for k in range(K):
             match_vec[k] = -1
             Ly[k] = 0
@@ -419,7 +420,8 @@ def Kuhn_Munkres_based_subcarrier_allocation(tau_mat, h_mat, a_list, b_mat):
                 S[j] = 0
             for k in range(K):
                 T[k] = 0
-            flag, S, T, match_vec = find_path(outer_j, S.copy(), T.copy(), Lx.copy(), Ly.copy(), weight_mat.copy(), match_vec.copy())
+            flag, S, T, match_vec = find_path(outer_j, S.copy(), T.copy(), Lx.copy(), Ly.copy(), weight_mat.copy(),
+                                              match_vec.copy())
             if flag:
                 break
             else:
@@ -436,6 +438,7 @@ def Kuhn_Munkres_based_subcarrier_allocation(tau_mat, h_mat, a_list, b_mat):
                     if T[k] == 1:
                         Ly[k] += delta
 
+    print(match_vec)
     for k in range(K):
         indicator_mat[int(match_vec[k]), k] = 1
     print(indicator_mat)
@@ -452,11 +455,11 @@ def find_path(idx, S, T, Lx, Ly, weight_mat, match_vec):
                 match_vec[k] = idx
                 return True, S.copy(), T.copy(), match_vec.copy()
             else:
-                flag, new_S, new_T, new_match_vec = find_path(int(match_vec[k]), S.copy(), T.copy(), Lx, Ly, weight_mat,
+                flag, S, T, match_vec = find_path(int(match_vec[k]), S.copy(), T.copy(), Lx, Ly, weight_mat,
                                                               match_vec.copy())
                 if flag:
                     match_vec[k] = idx
-                    return True, new_S, new_T, new_match_vec
+                    return True, S.copy(), T.copy(), match_vec.copy()
     return False, S.copy(), T.copy(), match_vec.copy()
 
 

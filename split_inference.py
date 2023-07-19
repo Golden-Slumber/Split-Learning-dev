@@ -15,6 +15,7 @@ from multi_modality_nural_network import MultiModalityNet
 from system_optimization import alternating_optimization_v2, random_system_param, alternating_optimization_v3
 from revised_system_optimization import alternating_optimization_framework, fixed_subcarrier_allocation, \
     random_system_param_v2, BnB_alternating_optimization_framework
+from Hungarian_based_system_optimization import graph_based_alternating_optimization_framework
 
 home_dir = './'
 sys.path.append(home_dir)
@@ -78,7 +79,11 @@ class WirelessSplitNet(nn.Module):
                                                                                                        self.h_mat,
                                                                                                        self.tau2,
                                                                                                        self.P)
-            # print(tmp_indicator_mat)
+            elif self.mode == GRAPH:
+                tmp_indicator_mat, tmp_b_mat, tmp_a_list, mse = graph_based_alternating_optimization_framework(
+                    self.w_mat, self.h_mat,
+                    self.tau2, self.P)
+                # print(tmp_indicator_mat)
             # print(tmp_b_mat)
             # print(tmp_a_list)
             self.indicator_mat = None
@@ -359,11 +364,15 @@ if __name__ == '__main__':
     # tau2_list = [0.02, 0.04, 0.06, 0.08, 0.1]
     # tau2_list = [0.02, 0.22, 0.42, 0.62, 0.82]
     # tau2_list = [0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5]
-    tau2_list = [0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4]
+    # tau2_list = [0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4]
+    tau2_list = [2, 4]
     # tau2_list = [0.82]
     # eta_list = [0.27, 0.2, 0.1, 0.05, 0.08]
     # eta_list = [0.08, 0.05, 0.02, 0.01, 0.008, 0.005, 0.002, 0.001, 0.0008, 0.0005]
-    eta_list = [5e-5, 5e-5, 4e-5, 4e-5, 3e-5, 3e-5, 2e-5, 2e-5]
+    # eta_list = [5e-5, 5e-5, 4e-5, 4e-5, 3e-5, 3e-5, 2e-5, 2e-5]
+    eta_list = [4e-5, 2e-5]
+
+    # todo Estimation based on training samples
     w_mat = numpy.zeros((n_devices, J))
     # distance_list = numpy.random.randint(1, 20, size=n_devices)
     ini_h_mat = abs(numpy.random.randn(n_devices, K, m))
@@ -377,16 +386,16 @@ if __name__ == '__main__':
                 tmp += fc2_weights_list[n][j, i] ** 2
             w_mat[n, j] = tmp
 
-    repeat = 20
+    repeat = 5
     data_name = 'fashionMNIST'
     # data_name = 'cifar10'
     legends = ['Scheme 1', 'Scheme 2', 'Scheme 3']
     results = numpy.zeros((3, repeat, len(tau2_list)))
     objectives = numpy.zeros((3, repeat, len(tau2_list)))
-    # stored_results = numpy.zeros((3, len(tau2_list)))
-    # stored_objectives = numpy.zeros((3, len(tau2_list)))
-    stored_results = numpy.zeros((1, len(tau2_list)))
-    stored_objectives = numpy.zeros((1, len(tau2_list)))
+    stored_results = numpy.zeros((3, len(tau2_list)))
+    stored_objectives = numpy.zeros((3, len(tau2_list)))
+    # stored_results = numpy.zeros((1, len(tau2_list)))
+    # stored_objectives = numpy.zeros((1, len(tau2_list)))
 
     for r in range(repeat):
         # h_mat = abs(numpy.random.randn(n_devices, K, m))
@@ -404,17 +413,21 @@ if __name__ == '__main__':
         for i in range(len(tau2_list)):
             print('---noise variance: ' + str(tau2_list[i]))
 
-            objectives[0, r, i] = model.set_system_params(w_mat, h_mat, tau2_list[i], P, OPTIMIZED, eta=eta_list[i])
-            # objectives[0, r, i] = model.set_system_params(w_mat, h_mat, tau2_list[i], P, RANDOM2)
+            # objectives[0, r, i] = model.set_system_params(w_mat, h_mat, tau2_list[i], P, OPTIMIZED, eta=eta_list[i])
+            objectives[0, r, i] = model.set_system_params(w_mat, h_mat, tau2_list[i], P, RANDOM)
             stored_objectives[0, i] = objectives[0, r, i]
             results[0, r, i] = test(model, device, test_loader)
             stored_results[0, i] = results[0, r, i]
-            # objectives[1, r, i] = model.set_system_params(w_mat, h_mat, tau2_list[i], P, RANDOM)
-            # stored_objectives[1, i] = objectives[1, r, i]
-            # results[1, r, i] = test(model, device, test_loader)
-            # stored_results[1, i] = results[1, r, i]
-            # objectives[2, r, i] = model.set_system_params(w_mat, h_mat, tau2_list[i], P, PURE)
-            # stored_objectives[2, i] = objectives[2, r, i]
+
+            objectives[1, r, i] = model.set_system_params(w_mat, h_mat, tau2_list[i], P, GRAPH)
+            stored_objectives[1, i] = objectives[1, r, i]
+            results[1, r, i] = test(model, device, test_loader)
+            stored_results[1, i] = results[1, r, i]
+
+            objectives[2, r, i] = model.set_system_params(w_mat, h_mat, tau2_list[i], P, OPTIMIZED)
+            stored_objectives[2, i] = objectives[2, r, i]
+            results[2, r, i] = test(model, device, test_loader)
+            stored_results[2, i] = results[2, r, i]
 
             # pure_model = MultiModalityNet(next_layer_neurons, pre_layer_neurons, tau2=0., device=device,
             #                               dataset='FashionMNIST').to(device)
@@ -427,4 +440,4 @@ if __name__ == '__main__':
     # out_file_name = home_dir + 'Outputs/aircomp_based_split_inference_' + data_name + '_repeats_' + str(
     #     repeat) + '_total_results.npz'
     # numpy.savez(out_file_name, res=results, obj=objectives)
-    # plot_results(results, objectives, tau2_list, data_name, legends)
+    plot_results(results, objectives, tau2_list, data_name, legends)

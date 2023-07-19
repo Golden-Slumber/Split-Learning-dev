@@ -166,7 +166,7 @@ def transmission_power_optimization(w_mat, h_mat, indicator_mat, a_list, P, pre_
                 square_alpha_mat[n, j, k] = alpha_mat[n, j, k] ** 2
 
     pre_obj = 1e8
-    eta = 0.01
+    eta = 0.05
 
     for it in range(max_iter):
         # multipler update

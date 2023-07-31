@@ -4,6 +4,7 @@ import cmath
 import cvxpy
 import numpy
 from tqdm import tqdm
+
 # from BnB_system_optimization import Ellipsoid_based_BnB
 
 home_dir = './'
@@ -24,6 +25,7 @@ def objective_calculation(w_mat, h_mat, a_list, indicator_mat, b_mat, sigma):
         obj += sigma * numpy.linalg.norm(a_list[j]) ** 2
 
     return obj
+
 
 def original_objective_calculation(w_mat, h_mat, a_list, indicator_mat, b_mat, sigma):
     N, J = w_mat.shape
@@ -46,7 +48,7 @@ def check_constraints(indicator_mat, w_mat, b_mat, P):
     J, K = indicator_mat.shape
     N, _ = w_mat.shape
 
-    print('---check constraints---')
+    # print('---check constraints---')
 
     # constraint 1
     for j in range(J):
@@ -63,8 +65,9 @@ def check_constraints(indicator_mat, w_mat, b_mat, P):
         transmit_power = 0
         for j in range(J):
             transmit_power += b_mat[n, j] ** 2 * w_mat[n, j]
-        if transmit_power > P:
+        if transmit_power - P > 1e-4:
             print('constraint 3 violated: index ' + str(n) + '  value: ' + str(transmit_power))
+
 
 def check_allocation(indicator_mat):
     J, K = indicator_mat.shape
@@ -79,6 +82,7 @@ def check_allocation(indicator_mat):
     for k in range(K):
         if numpy.sum(indicator_mat[:, k]) - 1 > 1e-2:
             print('constraint 2 violated: index ' + str(k) + ' value: ' + str(numpy.sum(indicator_mat[:, k])))
+
 
 def assignment_index(indicator_mat):
     J, K = indicator_mat.shape
@@ -138,8 +142,9 @@ def beamforming_optimization(w_mat, h_mat, indicator_mat, b_mat, sigma):
         for n in range(N):
             for k in range(K):
                 h_vec = numpy.mat(h_mat[n, k]).reshape((m, 1))
-                tmp_vec += w_mat[n, j] * indicator_mat[j, k] * b_mat[n, j] * h_vec
-                tmp_value += w_mat[n, j] * numpy.linalg.norm(indicator_mat[j, k] * b_mat[n, j] * h_vec) ** 2
+                if indicator_mat[j, k] == 1:
+                    tmp_vec += w_mat[n, j] * indicator_mat[j, k] * b_mat[n, j] * h_vec
+                    tmp_value += w_mat[n, j] * numpy.linalg.norm(indicator_mat[j, k] * b_mat[n, j] * h_vec) ** 2
         alpha_vec[j] = tmp_vec
         alpha_mat[j] = tmp_value
     for j in range(J):
@@ -190,6 +195,30 @@ def transmission_power_optimization(w_mat, h_mat, indicator_mat, a_list, P, pre_
     return b_mat
 
 
+def CVX_based_transmission_power_optimization(w_mat, h_mat, indicator_mat, a_list, P, pre_b_mat=None):
+    N, J = w_mat.shape
+    _, K, m = h_mat.shape
+    alpha_mat = numpy.zeros((N, J))
+    beta_mat = numpy.zeros((N, J))
+    tau_mat = numpy.zeros((N, J))
+    for n in range(N):
+        for j in range(J):
+            for k in range(K):
+                h_vec = numpy.mat(h_mat[n, k, :]).reshape((m, 1))
+                tmp = indicator_mat[j, k] * numpy.sum(numpy.dot(a_list[j].T, h_vec))
+                alpha_mat[n, j] += w_mat[n, j] * tmp ** 2
+                beta_mat[n, j] -= 2 * w_mat[n, j] * tmp
+            tau_mat[n, j] = numpy.sqrt(w_mat[n, j])
+
+    b_mat = cvxpy.Variable((N, J))
+    constraints = [cvxpy.sum_squares(cvxpy.multiply(b_mat[n], tau_mat[n])) <= P for n in range(N)]
+    obj = cvxpy.Minimize(cvxpy.sum(cvxpy.multiply(cvxpy.power(b_mat, 2), alpha_mat) + cvxpy.multiply(b_mat, beta_mat)))
+    problem = cvxpy.Problem(obj, constraints)
+    problem.solve()
+
+    return b_mat.value
+
+
 def subcarrier_allocation_optimization(w_mat, h_mat, a_list, b_mat, pre_indicator_mat=None, eta=None, max_iter=50):
     N, J = w_mat.shape
     _, K, m = h_mat.shape
@@ -221,7 +250,6 @@ def subcarrier_allocation_optimization(w_mat, h_mat, a_list, b_mat, pre_indicato
         lambda_vec = lambda_vec + eta * (numpy.sum(indicator_mat, axis=0) - 1)
         for k in range(K):
             lambda_vec[k] = 0 if lambda_vec[k] < 0 else lambda_vec[k]
-
 
         # indicator update
         vis_idx_list = list()
@@ -271,7 +299,9 @@ def subcarrier_allocation_optimization(w_mat, h_mat, a_list, b_mat, pre_indicato
         # check_allocation(indicator_mat)
     return indicator_mat
 
-def modified_subcarrier_allocation_optimization(w_mat, h_mat, a_list, b_mat, pre_indicator_mat=None, eta=None, max_iter=50):
+
+def modified_subcarrier_allocation_optimization(w_mat, h_mat, a_list, b_mat, pre_indicator_mat=None, eta=None,
+                                                max_iter=50):
     N, J = w_mat.shape
     _, K, m = h_mat.shape
     indicator_mat = numpy.zeros((J, K))
@@ -302,7 +332,6 @@ def modified_subcarrier_allocation_optimization(w_mat, h_mat, a_list, b_mat, pre
         lambda_vec = lambda_vec + eta * (numpy.sum(indicator_mat, axis=0) - 1)
         for k in range(K):
             lambda_vec[k] = 0 if lambda_vec[k] < 0 else lambda_vec[k]
-
 
         # indicator update
         vis_idx_list = list()
@@ -370,18 +399,22 @@ def alternating_optimization_framework(w_mat, h_mat, sigma, P, eta=None, max_ite
     for it in tqdm(range(max_iter)):
         # subcarrier allocation
         # indicator_mat = subcarrier_allocation_optimization(w_mat, h_mat, a_list, b_mat, pre_indicator_mat=indicator_mat, eta=eta)
-        indicator_mat = modified_subcarrier_allocation_optimization(w_mat, h_mat, a_list, b_mat, pre_indicator_mat=indicator_mat,
-                                                           eta=eta)
+        indicator_mat = modified_subcarrier_allocation_optimization(w_mat, h_mat, a_list, b_mat,
+                                                                    pre_indicator_mat=indicator_mat,
+                                                                    eta=eta)
+        # if it == 0:
+        #     print(objective_calculation(w_mat, h_mat, a_list, indicator_mat, b_mat, sigma))
 
         # transmission power optimization
-        b_mat = transmission_power_optimization(w_mat, h_mat, indicator_mat, a_list, P, pre_b_mat=b_mat)
+        # b_mat = transmission_power_optimization(w_mat, h_mat, indicator_mat, a_list, P, pre_b_mat=b_mat)
+        b_mat = CVX_based_transmission_power_optimization(w_mat, h_mat, indicator_mat, a_list, P, pre_b_mat=b_mat)
 
         # beamforming optimization
         a_list = beamforming_optimization(w_mat, h_mat, indicator_mat, b_mat, sigma)
 
         new_obj = objective_calculation(w_mat, h_mat, a_list, indicator_mat, b_mat, sigma)
         print('iter ' + str(it) + ': objective: ' + str(new_obj))
-        print(indicator_mat)
+        # print(indicator_mat)
         check_constraints(indicator_mat, w_mat, b_mat, P)
         if numpy.linalg.norm(pre_indicator - indicator_mat) == 0:
             break
@@ -397,6 +430,7 @@ def alternating_optimization_framework(w_mat, h_mat, sigma, P, eta=None, max_ite
     mse = original_objective_calculation(w_mat, h_mat, a_list, indicator_mat, b_mat, sigma)
     print(mse)
     return indicator_mat, b_mat, a_list, mse
+
 
 def BnB_alternating_optimization_framework(w_mat, h_mat, sigma, P, eta=None, max_iter=20):
     N, J = w_mat.shape
@@ -452,15 +486,18 @@ def fixed_subcarrier_allocation(w_mat, h_mat, sigma, P):
     b_mat = numpy.zeros((N, J))
     indicator_mat = numpy.zeros((J, K))
 
+    perm = numpy.random.permutation(K)
+
     for j in range(J):
-        indicator_mat[j, j] = 1
+        indicator_mat[j, int(perm[j])] = 1
     for n in range(N):
         for j in range(J):
             b_mat[n, j] = numpy.sqrt(P / J / w_mat[n, j])
     a_list = beamforming_optimization(w_mat, h_mat, indicator_mat, b_mat, sigma)
 
     # transmission power optimization
-    b_mat = transmission_power_optimization(w_mat, h_mat, indicator_mat, a_list, P, pre_b_mat=b_mat)
+    # b_mat = transmission_power_optimization(w_mat, h_mat, indicator_mat, a_list, P, pre_b_mat=b_mat)
+    b_mat = CVX_based_transmission_power_optimization(w_mat, h_mat, indicator_mat, a_list, P, pre_b_mat=b_mat)
 
     # beamforming optimization
     a_list = beamforming_optimization(w_mat, h_mat, indicator_mat, b_mat, sigma)
@@ -471,6 +508,7 @@ def fixed_subcarrier_allocation(w_mat, h_mat, sigma, P):
     mse = original_objective_calculation(w_mat, h_mat, a_list, indicator_mat, b_mat, sigma)
     print(mse)
     return indicator_mat, b_mat, a_list, mse
+
 
 def random_system_param_v2(w_mat, h_mat, sigma, P):
     N, J = w_mat.shape

@@ -30,7 +30,7 @@ class WirelessSplitNet(nn.Module):
         self.n_devices = len(self.next_layer_neurons)
         self.relu = nn.ReLU()
         self.softmax = nn.LogSoftmax(dim=1)
-        self.layer_norms = [nn.LayerNorm(next_layer_neurons[j]).to(device) for j in range(len(next_layer_neurons))]
+        # self.layer_norms = [nn.LayerNorm(next_layer_neurons[j]).to(device) for j in range(len(next_layer_neurons))]
         self.w_mat = None
         self.h_mat = None
         self.tau2 = None
@@ -104,11 +104,20 @@ class WirelessSplitNet(nn.Module):
 
         # device-side forward
         device_side_output_list = list()
+        sub_model_output_list = list()
+        mean = 0
+        var = 0
         for i in range(len(self.next_layer_neurons)):
             x_data = x_list[i]
             sub_model_output = self.sub_models[i](x_data)
 
-            sub_model_output = self.layer_norms[i](sub_model_output)
+            cur_mean = sub_model_output.mean()
+            var += (sub_model_output - cur_mean).pow(2).mean().item()
+            mean += cur_mean.item()
+
+            sub_model_output_list.append(sub_model_output)
+
+            # sub_model_output = self.layer_norms[i](sub_model_output)
             # print(torch.mean(sub_model_output))
             # print(torch.linalg.norm(sub_model_output))
 
@@ -116,7 +125,14 @@ class WirelessSplitNet(nn.Module):
             #     fc1_output = sub_model_output
             # else:
             #     fc1_output = torch.cat([fc1_output, sub_model_output], dim=1)
+
+        mean /= len(self.next_layer_neurons)
+        var /= len(self.next_layer_neurons)
+
+        for i in range(len(self.next_layer_neurons)):
+            sub_model_output = (sub_model_output_list[i] - mean) / numpy.sqrt(var + 1e-6)
             device_side_output = self.cut_layer[i](sub_model_output)
+            # print(device_side_output.mean())
             device_side_output_list.append(device_side_output)
 
         # over-the-air aggregation
@@ -148,6 +164,49 @@ class WirelessSplitNet(nn.Module):
         x = self.relu(self.fc3(x))
         x = self.relu(self.fc4(x))
         return self.softmax(self.output(x))
+
+    def get_statistics(self, x, n_devices, J):
+        variance_mat = numpy.zeros((n_devices, J))
+        x = x.view(-1, 784)
+        x_list = torch.split(x, self.pre_layer_neurons.tolist(), dim=1)
+        # fc1_output = None
+
+        # device-side forward
+        device_side_output_list = list()
+        sub_model_output_list = list()
+        mean = 0
+        var = 0
+        for i in range(len(self.next_layer_neurons)):
+            x_data = x_list[i]
+            sub_model_output = self.sub_models[i](x_data)
+
+            # print(sub_model_output)
+            cur_mean = sub_model_output.mean()
+            var += (sub_model_output - cur_mean).pow(2).mean().item()
+            mean += cur_mean.item()
+
+            sub_model_output_list.append(sub_model_output)
+
+            # sub_model_output = self.layer_norms[i](sub_model_output)
+            # print(torch.mean(sub_model_output))
+            # print(torch.linalg.norm(sub_model_output))
+
+            # if i == 0:
+            #     fc1_output = sub_model_output
+            # else:
+            #     fc1_output = torch.cat([fc1_output, sub_model_output], dim=1)
+
+        mean /= len(self.next_layer_neurons)
+        var /= len(self.next_layer_neurons)
+
+        for i in range(len(self.next_layer_neurons)):
+            sub_model_output = (sub_model_output_list[i] - mean) / numpy.sqrt(var + 1e-6)
+            device_side_output = self.cut_layer[i](sub_model_output)
+            device_side_output_list.append(device_side_output)
+
+            variance_mat[i, :] = torch.var(device_side_output, 0, correction=0).cpu().numpy()
+
+        return variance_mat
 
 
 def train(args, model, device, train_loader, optimizer, epoch):
@@ -290,7 +349,37 @@ def FashionMNIST_training(args, n_devices, next_layer_neurons, pre_layer_neurons
         test(model, device, test_loader)
 
     if args.save_model:
-        torch.save(model.state_dict(), 'multi_modality_fashionmnist_n_devices_' + str(n_devices) + '.pt')
+        torch.save(model.state_dict(), 'vertically_split_fashionmnist_n_devices_' + str(n_devices) + '.pt')
+
+
+def tau_mat_processing(args, model, n_devices, J):
+    tau_mat = numpy.zeros((n_devices, J))
+
+    use_cuda = not args.no_cuda and torch.cuda.is_available()
+    torch.manual_seed(args.seed)
+    device = torch.device("cuda" if use_cuda else "cpu")
+
+    kwargs = {'num_workers': 1, 'pin_memory': True} if use_cuda else {}
+    train_loader = DataLoader(datasets.FashionMNIST(root='./Resources/', train=True, download=True,
+                                                    transform=transforms.Compose([transforms.ToTensor(),
+                                                                                  transforms.Normalize((0.1307,),
+                                                                                                       (0.3081,))])),
+                              batch_size=args.batch_size, shuffle=True, **kwargs)
+    test_loader = DataLoader(datasets.FashionMNIST(root='./Resources/', train=False,
+                                                   transform=transforms.Compose(
+                                                       [transforms.ToTensor(), transforms.Normalize((0.1307,),
+                                                                                                    (0.3081,))])),
+                             batch_size=args.test_batch_size, shuffle=True, **kwargs)
+
+    n_batches = 0
+    model.eval()
+    with torch.no_grad():
+        for data, target in train_loader:
+            data = data.to(device)
+            partial_tau_mat = model.get_statistics(data, n_devices, J)
+            tau_mat += partial_tau_mat
+            n_batches += 1
+    return tau_mat / n_batches
 
 
 if __name__ == '__main__':
@@ -332,112 +421,120 @@ if __name__ == '__main__':
     next_layer_neurons = numpy.array(next_layer_neurons_list)
     pre_layer_neurons = numpy.array(pre_layer_neurons_list)
 
-    # FashionMNIST_training(args, n_devices, next_layer_neurons, pre_layer_neurons)
+    train_flag = False
+    if train_flag:
+        FashionMNIST_training(args, n_devices, next_layer_neurons, pre_layer_neurons)
+    else:
+        # load model
+        model_state_dict = torch.load('vertically_split_fashionmnist_n_devices_' + str(n_devices) + '.pt')
+        model = WirelessSplitNet(next_layer_neurons, pre_layer_neurons, device=device).to(device)
+        wireless_split_net_dict = model.state_dict()
+        # print(model_state_dict.keys())
+        # print(wireless_split_net_dict.keys())
+        # print(wireless_split_net_dict['cut_layer.0.0.weight'].shape)
+        new_dict = {k: v for k, v in model_state_dict.items() if k in wireless_split_net_dict.keys()}
+        fc2_weights = model_state_dict['fc2.weight']
+        fc2_bias = model_state_dict['fc2.bias']
+        model.cut_layer_bias = fc2_bias.to(device)
+        fc2_weights_list = torch.split(fc2_weights, next_layer_neurons.tolist(), dim=1)
+        # print(fc2_weights_list)
+        for i in range(len(next_layer_neurons)):
+            key = 'cut_layer.' + str(i) + '.0.weight'
+            new_dict[key] = fc2_weights_list[i]
+            key = 'cut_layer.' + str(i) + '.0.bias'
+            new_dict[key] = torch.zeros(32)
+        wireless_split_net_dict.update(new_dict)
+        model.load_state_dict(wireless_split_net_dict)
 
-    # load model
-    model_state_dict = torch.load('multi_modality_fashionmnist_n_devices_' + str(n_devices) + '.pt')
-    model = WirelessSplitNet(next_layer_neurons, pre_layer_neurons, device=device).to(device)
-    wireless_split_net_dict = model.state_dict()
-    # print(model_state_dict.keys())
-    # print(wireless_split_net_dict.keys())
-    # print(wireless_split_net_dict['cut_layer.0.0.weight'].shape)
-    new_dict = {k: v for k, v in model_state_dict.items() if k in wireless_split_net_dict.keys()}
-    fc2_weights = model_state_dict['fc2.weight']
-    fc2_bias = model_state_dict['fc2.bias']
-    model.cut_layer_bias = fc2_bias.to(device)
-    fc2_weights_list = torch.split(fc2_weights, next_layer_neurons.tolist(), dim=1)
-    # print(fc2_weights_list)
-    for i in range(len(next_layer_neurons)):
-        key = 'cut_layer.' + str(i) + '.0.weight'
-        new_dict[key] = fc2_weights_list[i]
-        key = 'cut_layer.' + str(i) + '.0.bias'
-        new_dict[key] = torch.zeros(32)
-    wireless_split_net_dict.update(new_dict)
-    model.load_state_dict(wireless_split_net_dict)
+        # system parameters
+        J = 32
+        K = 64
+        m = 5
+        P = 10
+        # tau2_list = [0.1, 0.3, 0.5, 0.7, 0.9, 1.1, 1.3, 1.5]
+        # tau2_list = [0.02, 0.04, 0.06, 0.08, 0.1]
+        # tau2_list = [0.02, 0.22, 0.42, 0.62, 0.82]
+        # tau2_list = [0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5]
+        # tau2_list = [0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4]
+        # tau2_list = [1, 2, 3, 4, 5, 6, 7]
+        # tau2_list = [0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4]
+        tau2_list = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2]
+        # tau2_list = [0.2, 0.6, 1, 1.4, 1.8, 2.2, 2.6, 3]
+        # tau2_list = [0.82]
+        # eta_list = [0.27, 0.2, 0.1, 0.05, 0.08]
+        # eta_list = [0.08, 0.05, 0.02, 0.01, 0.008, 0.005, 0.002, 0.001, 0.0008, 0.0005]
+        eta_list = [5e-5, 5e-5, 4e-5, 4e-5, 3e-5, 3e-5, 2e-5, 2e-5]
+        # eta_list = [2e-5]
 
-    # system parameters
-    J = 32
-    K = 32
-    m = 5
-    P = 10
-    # tau2_list = [0.1, 0.3, 0.5, 0.7, 0.9, 1.1, 1.3, 1.5]
-    # tau2_list = [0.02, 0.04, 0.06, 0.08, 0.1]
-    # tau2_list = [0.02, 0.22, 0.42, 0.62, 0.82]
-    # tau2_list = [0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5]
-    # tau2_list = [0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4]
-    tau2_list = [2, 4]
-    # tau2_list = [0.82]
-    # eta_list = [0.27, 0.2, 0.1, 0.05, 0.08]
-    # eta_list = [0.08, 0.05, 0.02, 0.01, 0.008, 0.005, 0.002, 0.001, 0.0008, 0.0005]
-    # eta_list = [5e-5, 5e-5, 4e-5, 4e-5, 3e-5, 3e-5, 2e-5, 2e-5]
-    eta_list = [4e-5, 2e-5]
+        # Estimation based on training samples
+        # w_mat = numpy.zeros((n_devices, J))
+        # distance_list = numpy.random.randint(1, 20, size=n_devices)
+        ini_h_mat = abs(numpy.random.randn(n_devices, K, m))
+        # for n in range(n_devices):
+        #     PL = (10 ** 3) * ((distance_list[n] / 1) ** (-3.76))
+        #     h_mat[n] = distance_list[n] * h_mat[n] / 10
+        # for n in range(n_devices):
+        #     for j in range(J):
+        #         tmp = 0
+        #         for i in range(next_layer_neurons[n]):
+        #             tmp += fc2_weights_list[n][j, i] ** 2
+        #         w_mat[n, j] = tmp
+        w_mat = tau_mat_processing(args, model, n_devices, J)
 
-    # todo Estimation based on training samples
-    w_mat = numpy.zeros((n_devices, J))
-    # distance_list = numpy.random.randint(1, 20, size=n_devices)
-    ini_h_mat = abs(numpy.random.randn(n_devices, K, m))
-    # for n in range(n_devices):
-    #     PL = (10 ** 3) * ((distance_list[n] / 1) ** (-3.76))
-    #     h_mat[n] = distance_list[n] * h_mat[n] / 10
-    for n in range(n_devices):
-        for j in range(J):
-            tmp = 0
-            for i in range(next_layer_neurons[n]):
-                tmp += fc2_weights_list[n][j, i] ** 2
-            w_mat[n, j] = tmp
+        repeat = 100
+        data_name = 'fashionMNIST'
+        # data_name = 'cifar10'
+        legends = ['Scheme 1', 'Scheme 2', 'Scheme 3']
+        # legends = ['Scheme 1', 'Scheme 2']
+        results = numpy.zeros((3, repeat, len(tau2_list)))
+        objectives = numpy.zeros((3, repeat, len(tau2_list)))
+        stored_results = numpy.zeros((3, len(tau2_list)))
+        stored_objectives = numpy.zeros((3, len(tau2_list)))
+        # stored_results = numpy.zeros((1, len(tau2_list)))
+        # stored_objectives = numpy.zeros((1, len(tau2_list)))
 
-    repeat = 5
-    data_name = 'fashionMNIST'
-    # data_name = 'cifar10'
-    legends = ['Scheme 1', 'Scheme 2', 'Scheme 3']
-    results = numpy.zeros((3, repeat, len(tau2_list)))
-    objectives = numpy.zeros((3, repeat, len(tau2_list)))
-    stored_results = numpy.zeros((3, len(tau2_list)))
-    stored_objectives = numpy.zeros((3, len(tau2_list)))
-    # stored_results = numpy.zeros((1, len(tau2_list)))
-    # stored_objectives = numpy.zeros((1, len(tau2_list)))
+        for r in range(repeat):
+            # h_mat = abs(numpy.random.randn(n_devices, K, m))
+            h_mat = ini_h_mat.copy()
+            for n in range(n_devices):
+                subcarrier_scale_list = numpy.zeros(K)
+                subcarrier_scale_list[0:int(K / 2)] = 0.1 * numpy.random.random_sample(int(K / 2)) + 0.1
+                # # subcarrier_scale_list[int(K / 4):] = 5 * numpy.random.random_sample(int(K / 2)) + 5
+                subcarrier_scale_list[int(K / 2):] = 1
+                # subcarrier_scale_list[:] = numpy.random.random_sample(K) + 0.5
+                subcarrier_scale_list = subcarrier_scale_list[numpy.random.permutation(K)]
+                # tmp_subcarrier_scale_list = subcarrier_scale_list[numpy.random.permutation(K)]
+                for k in range(K):
+                    h_mat[n, k] = subcarrier_scale_list[k] * h_mat[n, k]
 
-    for r in range(repeat):
-        # h_mat = abs(numpy.random.randn(n_devices, K, m))
-        h_mat = ini_h_mat.copy()
-        for n in range(n_devices):
-            subcarrier_scale_list = numpy.zeros(K)
-            subcarrier_scale_list[0:int(K / 4)] = 0.1 * numpy.random.random_sample(int(K / 4)) + 0.1
-            # subcarrier_scale_list[int(K / 4):] = 5 * numpy.random.random_sample(int(K / 2)) + 5
-            subcarrier_scale_list[int(K / 4):] = 1
-            subcarrier_scale_list = subcarrier_scale_list[numpy.random.permutation(K)]
-            tmp_subcarrier_scale_list = subcarrier_scale_list[numpy.random.permutation(K)]
-            for k in range(K):
-                h_mat[n, k] = subcarrier_scale_list[k] * h_mat[n, k]
+            for i in range(len(tau2_list)):
+                print('iteration ' + str(r) + ' - noise variance: ' + str(tau2_list[i]))
 
-        for i in range(len(tau2_list)):
-            print('---noise variance: ' + str(tau2_list[i]))
+                # objectives[0, r, i] = model.set_system_params(w_mat, h_mat, tau2_list[i], P, OPTIMIZED, eta=eta_list[i])
+                objectives[0, r, i] = model.set_system_params(w_mat, h_mat, tau2_list[i], P, RANDOM)
+                stored_objectives[0, i] = objectives[0, r, i]
+                results[0, r, i] = test(model, device, test_loader)
+                stored_results[0, i] = results[0, r, i]
 
-            # objectives[0, r, i] = model.set_system_params(w_mat, h_mat, tau2_list[i], P, OPTIMIZED, eta=eta_list[i])
-            objectives[0, r, i] = model.set_system_params(w_mat, h_mat, tau2_list[i], P, RANDOM)
-            stored_objectives[0, i] = objectives[0, r, i]
-            results[0, r, i] = test(model, device, test_loader)
-            stored_results[0, i] = results[0, r, i]
+                objectives[1, r, i] = model.set_system_params(w_mat, h_mat, tau2_list[i], P, GRAPH)
+                stored_objectives[1, i] = objectives[1, r, i]
+                results[1, r, i] = test(model, device, test_loader)
+                stored_results[1, i] = results[1, r, i]
 
-            objectives[1, r, i] = model.set_system_params(w_mat, h_mat, tau2_list[i], P, GRAPH)
-            stored_objectives[1, i] = objectives[1, r, i]
-            results[1, r, i] = test(model, device, test_loader)
-            stored_results[1, i] = results[1, r, i]
+                objectives[2, r, i] = model.set_system_params(w_mat, h_mat, tau2_list[i], P, OPTIMIZED)
+                stored_objectives[2, i] = objectives[2, r, i]
+                results[2, r, i] = test(model, device, test_loader)
+                stored_results[2, i] = results[2, r, i]
 
-            objectives[2, r, i] = model.set_system_params(w_mat, h_mat, tau2_list[i], P, OPTIMIZED)
-            stored_objectives[2, i] = objectives[2, r, i]
-            results[2, r, i] = test(model, device, test_loader)
-            stored_results[2, i] = results[2, r, i]
-
-            # pure_model = MultiModalityNet(next_layer_neurons, pre_layer_neurons, tau2=0., device=device,
-            #                               dataset='FashionMNIST').to(device)
-            # pure_model.load_state_dict(model_state_dict)
-            # results[2, r, i] = test(model, device, test_loader)
-            # stored_results[2, i] = results[2, r, i]
-        out_file_name = home_dir + 'Outputs/aircomp_based_split_inference_' + data_name + '_repeat_' + str(
-            r) + '_random_results.npz'
-        numpy.savez(out_file_name, res=stored_results, obj=stored_objectives)
-    # out_file_name = home_dir + 'Outputs/aircomp_based_split_inference_' + data_name + '_repeats_' + str(
-    #     repeat) + '_total_results.npz'
-    # numpy.savez(out_file_name, res=results, obj=objectives)
-    plot_results(results, objectives, tau2_list, data_name, legends)
+                # pure_model = MultiModalityNet(next_layer_neurons, pre_layer_neurons, tau2=0., device=device,
+                #                               dataset='FashionMNIST').to(device)
+                # pure_model.load_state_dict(model_state_dict)
+                # results[2, r, i] = test(model, device, test_loader)
+                # stored_results[2, i] = results[2, r, i]
+            out_file_name = home_dir + 'Outputs/aircomp_based_split_inference_' + data_name + '_nvar-range_' + str(
+                tau2_list[0]) + '-' + str(tau2_list[-1]) + '_repeat_' + str(r) + '_results.npz'
+            numpy.savez(out_file_name, res=stored_results, obj=stored_objectives)
+        # out_file_name = home_dir + 'Outputs/aircomp_based_split_inference_' + data_name + '_repeats_' + str(
+        #     repeat) + '_total_results.npz'
+        # numpy.savez(out_file_name, res=results, obj=objectives)
+        plot_results(results, objectives, tau2_list, data_name, legends)

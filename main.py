@@ -75,7 +75,13 @@ if __name__ == '__main__':
     #         results[1, r, i] = scheme2[i]
     #
     # plot_results(results, tau2_list, data_name, legends)
+    out_file_name = home_dir + 'Outputs/aircomp_based_split_inference_' + 'fashionMNIST' + '_nvar-range_' + str(
+        0.25) + '-' + str(2) + '_repeat_' + str(0) + '_results.npz'
 
+    tmp = numpy.load(out_file_name)
+    key = tmp.files[0]
+    print(tmp[key])
+    print(tmp.files)
     perm = numpy.random.permutation(5)
     print(perm)
     print(perm[2])

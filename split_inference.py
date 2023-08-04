@@ -15,7 +15,8 @@ from multi_modality_nural_network import MultiModalityNet
 from system_optimization import alternating_optimization_v2, random_system_param, alternating_optimization_v3
 from revised_system_optimization import alternating_optimization_framework, fixed_subcarrier_allocation, \
     random_system_param_v2, BnB_alternating_optimization_framework
-from Hungarian_based_system_optimization import graph_based_alternating_optimization_framework
+from Hungarian_based_system_optimization import graph_based_alternating_optimization_framework, \
+    subcarrier_aware_optimization, power_aware_optimization
 
 home_dir = './'
 sys.path.append(home_dir)
@@ -79,6 +80,12 @@ class WirelessSplitNet(nn.Module):
                                                                                                        self.h_mat,
                                                                                                        self.tau2,
                                                                                                        self.P)
+            elif self.mode == SUBCARRIER_AWARE:
+                tmp_indicator_mat, tmp_b_mat, tmp_a_list, mse = subcarrier_aware_optimization(self.w_mat, self.h_mat,
+                                                                                              self.tau2, self.P)
+            elif self.mode == POWER_AWARE:
+                tmp_indicator_mat, tmp_b_mat, tmp_a_list, mse = power_aware_optimization(self.w_mat, self.h_mat,
+                                                                                         self.tau2, self.P)
             elif self.mode == GRAPH:
                 tmp_indicator_mat, tmp_b_mat, tmp_a_list, mse = graph_based_alternating_optimization_framework(
                     self.w_mat, self.h_mat,
@@ -448,7 +455,7 @@ if __name__ == '__main__':
 
         # system parameters
         J = 32
-        K = 64
+        K = 32
         m = 5
         P = 10
         # tau2_list = [0.1, 0.3, 0.5, 0.7, 0.9, 1.1, 1.3, 1.5]
@@ -498,8 +505,9 @@ if __name__ == '__main__':
             h_mat = ini_h_mat.copy()
             for n in range(n_devices):
                 subcarrier_scale_list = numpy.zeros(K)
-                subcarrier_scale_list[0:int(K / 2)] = 0.1 * numpy.random.random_sample(int(K / 2)) + 0.1
+                subcarrier_scale_list[0:int(K / 4)] = 0.1 * numpy.random.random_sample(int(K / 4)) + 0.1
                 # # subcarrier_scale_list[int(K / 4):] = 5 * numpy.random.random_sample(int(K / 2)) + 5
+                subcarrier_scale_list[int(K / 4):int(K / 2)] = 0.2 * numpy.random.random_sample(int(K / 4)) + 0.2
                 subcarrier_scale_list[int(K / 2):] = 1
                 # subcarrier_scale_list[:] = numpy.random.random_sample(K) + 0.5
                 subcarrier_scale_list = subcarrier_scale_list[numpy.random.permutation(K)]
@@ -511,17 +519,17 @@ if __name__ == '__main__':
                 print('iteration ' + str(r) + ' - noise variance: ' + str(tau2_list[i]))
 
                 # objectives[0, r, i] = model.set_system_params(w_mat, h_mat, tau2_list[i], P, OPTIMIZED, eta=eta_list[i])
-                objectives[0, r, i] = model.set_system_params(w_mat, h_mat, tau2_list[i], P, RANDOM)
+                objectives[0, r, i] = model.set_system_params(w_mat, h_mat, tau2_list[i], P, GRAPH)
                 stored_objectives[0, i] = objectives[0, r, i]
                 results[0, r, i] = test(model, device, test_loader)
                 stored_results[0, i] = results[0, r, i]
 
-                objectives[1, r, i] = model.set_system_params(w_mat, h_mat, tau2_list[i], P, GRAPH)
+                objectives[1, r, i] = model.set_system_params(w_mat, h_mat, tau2_list[i], P, SUBCARRIER_AWARE)
                 stored_objectives[1, i] = objectives[1, r, i]
                 results[1, r, i] = test(model, device, test_loader)
                 stored_results[1, i] = results[1, r, i]
 
-                objectives[2, r, i] = model.set_system_params(w_mat, h_mat, tau2_list[i], P, OPTIMIZED)
+                objectives[2, r, i] = model.set_system_params(w_mat, h_mat, tau2_list[i], P, POWER_AWARE)
                 stored_objectives[2, i] = objectives[2, r, i]
                 results[2, r, i] = test(model, device, test_loader)
                 stored_results[2, i] = results[2, r, i]

@@ -210,8 +210,8 @@ def check_power_constraints(tau_mat, b_mat, P):
             if b_mat[n, j] < 0:
                 print('negative constraints: ' + str(b_mat[n, j]))
             tmp += tau_mat[n, j] * b_mat[n, j] ** 2
-        if  tmp > P:
-            print('unsatisfied power constraint: '+str(tmp))
+        if tmp > P:
+            print('unsatisfied power constraint: ' + str(tmp))
 
 
 def graph_based_alternating_optimization_framework(w_mat, h_mat, sigma, P, eta=None, max_iter=100):
@@ -263,6 +263,81 @@ def graph_based_alternating_optimization_framework(w_mat, h_mat, sigma, P, eta=N
     # b_mat = transmission_power_optimization(w_mat, h_mat, indicator_mat, a_list, P, pre_b_mat=b_mat)
     # a_list = beamforming_optimization(w_mat, h_mat, indicator_mat, b_mat, sigma)
     # check_constraints(indicator_mat, w_mat, b_mat, P)
+    mse = original_objective_calculation(w_mat, h_mat, a_list, indicator_mat, b_mat, sigma)
+    print(mse)
+    return indicator_mat, b_mat, a_list, mse
+
+
+def subcarrier_aware_optimization(w_mat, h_mat, sigma, P, max_iter=50):
+    N, J = w_mat.shape
+    _, K, m = h_mat.shape
+    a_list = list()
+    b_mat = numpy.zeros((N, J))
+    indicator_mat = numpy.zeros((J, K))
+    for j in range(J):
+        indicator_mat[j, j] = 1
+    for n in range(N):
+        for j in range(J):
+            b_mat[n, j] = numpy.sqrt(P / J / w_mat[n, j])
+    a_list = beamforming_optimization(w_mat, h_mat, indicator_mat, b_mat, sigma)
+    pre_obj = 1e6
+
+    for it in tqdm(range(max_iter)):
+        # transmission power optimization
+        # print('transmission power optimization')
+        b_mat = CVX_based_transmission_power_optimization(w_mat, h_mat, indicator_mat, a_list, P, pre_b_mat=b_mat)
+        # check_power_constraints(w_mat, b_mat, P)
+
+        # beamforming optimization
+        # print('beamforming optimization')
+        a_list = beamforming_optimization(w_mat, h_mat, indicator_mat, b_mat, sigma)
+
+        new_obj = MSE_calculation(w_mat, h_mat, a_list, indicator_mat, b_mat, sigma)
+        print('subcarrier-aware optimization iter ' + str(it) + ': objective: ' + str(new_obj))
+        # print(indicator_mat)
+        check_constraints(indicator_mat, w_mat, b_mat, P)
+        # if numpy.linalg.norm(pre_indicator - indicator_mat) == 0:
+        #     break
+        # pre_indicator = indicator_mat.copy()
+        if abs(new_obj - pre_obj) < 1e-6:
+            break
+        pre_obj = new_obj
+    mse = original_objective_calculation(w_mat, h_mat, a_list, indicator_mat, b_mat, sigma)
+    print(mse)
+    return indicator_mat, b_mat, a_list, mse
+
+
+def power_aware_optimization(w_mat, h_mat, sigma, P, max_iter=50):
+    N, J = w_mat.shape
+    _, K, m = h_mat.shape
+    a_list = list()
+    b_mat = numpy.zeros((N, J))
+    indicator_mat = numpy.zeros((J, K))
+    for j in range(J):
+        indicator_mat[j, j] = 1
+    for n in range(N):
+        for j in range(J):
+            b_mat[n, j] = numpy.sqrt(P / J / w_mat[n, j])
+    a_list = beamforming_optimization(w_mat, h_mat, indicator_mat, b_mat, sigma)
+    pre_obj = 1e6
+
+    for it in tqdm(range(max_iter)):
+        indicator_mat = Kuhn_Munkres_based_subcarrier_allocation(w_mat, h_mat, a_list, b_mat)
+
+        # beamforming optimization
+        # print('beamforming optimization')
+        a_list = beamforming_optimization(w_mat, h_mat, indicator_mat, b_mat, sigma)
+
+        new_obj = MSE_calculation(w_mat, h_mat, a_list, indicator_mat, b_mat, sigma)
+        print('power-aware optimization iter ' + str(it) + ': objective: ' + str(new_obj))
+        # print(indicator_mat)
+        check_constraints(indicator_mat, w_mat, b_mat, P)
+        # if numpy.linalg.norm(pre_indicator - indicator_mat) == 0:
+        #     break
+        # pre_indicator = indicator_mat.copy()
+        if abs(new_obj - pre_obj) < 1e-6:
+            break
+        pre_obj = new_obj
     mse = original_objective_calculation(w_mat, h_mat, a_list, indicator_mat, b_mat, sigma)
     print(mse)
     return indicator_mat, b_mat, a_list, mse
@@ -324,7 +399,6 @@ if __name__ == '__main__':
     # check_power_constraints(tau_mat, b_mat, P)
     # print('CVX-based transmission power optimization: ' + str(
     #     objective_calculation(tau_mat, h_mat, a_list, b_mat, indicator_mat)))
-
 
     wat_mat = torch.zeros((N, J))
     for n in range(N):

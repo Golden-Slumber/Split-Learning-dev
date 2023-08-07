@@ -299,7 +299,7 @@ def plot_results(res, obj, tau2_list, data_name, legends):
     plt.tight_layout()
     plt.grid()
 
-    image_name = home_dir + 'Outputs/aircomp_based_inference_' + data_name + '_accuracy_1.pdf'
+    image_name = home_dir + 'Outputs/MLP_demo_' + data_name + '_accuracy_1.pdf'
     fig.savefig(image_name, format='pdf', dpi=1200)
     plt.show()
 
@@ -321,7 +321,7 @@ def plot_results(res, obj, tau2_list, data_name, legends):
     plt.tight_layout()
     plt.grid()
 
-    image_name = home_dir + 'Outputs/aircomp_based_inference_' + data_name + '_objective_1.pdf'
+    image_name = home_dir + 'Outputs/MLP_demo_' + data_name + '_objective_1.pdf'
     fig.savefig(image_name, format='pdf', dpi=1200)
     plt.show()
 
@@ -539,7 +539,7 @@ if __name__ == '__main__':
                 # pure_model.load_state_dict(model_state_dict)
                 # results[2, r, i] = test(model, device, test_loader)
                 # stored_results[2, i] = results[2, r, i]
-            out_file_name = home_dir + 'Outputs/aircomp_based_split_inference_' + data_name + '_nvar-range_' + str(
+            out_file_name = home_dir + 'Outputs/MLP_demo_' + data_name + '_nvar-range_' + str(
                 tau2_list[0]) + '-' + str(tau2_list[-1]) + '_repeat_' + str(r) + '_results.npz'
             numpy.savez(out_file_name, res=stored_results, obj=stored_objectives)
         # out_file_name = home_dir + 'Outputs/aircomp_based_split_inference_' + data_name + '_repeats_' + str(

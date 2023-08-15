@@ -274,8 +274,9 @@ def subcarrier_aware_optimization(w_mat, h_mat, sigma, P, max_iter=50):
     a_list = list()
     b_mat = numpy.zeros((N, J))
     indicator_mat = numpy.zeros((J, K))
+    perm = numpy.random.permutation(K)
     for j in range(J):
-        indicator_mat[j, j] = 1
+        indicator_mat[j, int(perm[j])] = 1
     for n in range(N):
         for j in range(J):
             b_mat[n, j] = numpy.sqrt(P / J / w_mat[n, j])
@@ -286,11 +287,12 @@ def subcarrier_aware_optimization(w_mat, h_mat, sigma, P, max_iter=50):
         # transmission power optimization
         # print('transmission power optimization')
         b_mat = CVX_based_transmission_power_optimization(w_mat, h_mat, indicator_mat, a_list, P, pre_b_mat=b_mat)
-        # check_power_constraints(w_mat, b_mat, P)
 
+        # check_power_constraints(w_mat, b_mat, P)
         # beamforming optimization
         # print('beamforming optimization')
-        a_list = beamforming_optimization(w_mat, h_mat, indicator_mat, b_mat, sigma)
+        if it != 0:
+            a_list = beamforming_optimization(w_mat, h_mat, indicator_mat, b_mat, sigma)
 
         new_obj = MSE_calculation(w_mat, h_mat, a_list, indicator_mat, b_mat, sigma)
         print('subcarrier-aware optimization iter ' + str(it) + ': objective: ' + str(new_obj))

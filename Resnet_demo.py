@@ -196,11 +196,11 @@ class RevisedSplitResnet(nn.Module):
             elif self.mode == POWER_AWARE:
                 tmp_indicator_mat, tmp_b_mat, tmp_a_list, mse = power_aware_optimization(self.w_mat, self.h_mat,
                                                                                          self.sigma2, self.P,
-                                                                                         max_iter=20)
+                                                                                         max_iter=10)
             elif self.mode == GRAPH:
                 tmp_indicator_mat, tmp_b_mat, tmp_a_list, mse = graph_based_alternating_optimization_framework(
                     self.w_mat, self.h_mat,
-                    self.sigma2, self.P, max_iter=20)
+                    self.sigma2, self.P, max_iter=10)
             self.indicator_mat = None
             self.b_mat = None
             self.a_list = list()
@@ -698,7 +698,7 @@ if __name__ == '__main__':
         K = 64
         m = 5
         P = 1
-        tau2_list = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2]
+        # tau2_list = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2]
         # tau2_list = [0.5, 0.6, 0.7, 0.8, 0.9, 1, 1.1, 1.2]
         # tau2_list = [0.2, 0.4, 0.6, 0.8, 1, 1.2, 1.4, 1.6]
         # tau2_list = [1, 2, 3, 4, 5, 6, 7, 8]
@@ -706,13 +706,13 @@ if __name__ == '__main__':
         # tau2_list = [0.6, 1, 1.4, 1.8, 2.2, 2.6, 3, 3.4]
         # tau2_list = [0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4]
         # tau2_list = [1.2, 1.6, 2, 2.4, 2.8, 3.2, 3.6, 4]
-        # tau2_list = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8]
+        tau2_list = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8]
         # ini_h_mat = abs(numpy.random.randn(n_devices, K, m))
         ini_h_mat = numpy.random.rayleigh(1, size=(n_devices, K, m))
         w_mat = tau_mat_processing(args, model, n_devices, J)
         # print(w_mat)
 
-        repeat = 100
+        repeat = 90
         # data_name = 'CIFAR10'
         data_name = 'EuroSAT'
         legends = ['Scheme 1: Proposed Approach', 'Scheme 2: Subcarrier-Aware', 'Scheme 3: Power-Aware']
@@ -724,15 +724,15 @@ if __name__ == '__main__':
         for r in range(repeat):
             h_mat = ini_h_mat.copy()
             h_norm_vec = numpy.zeros(K)
+            subcarrier_scale_list = numpy.zeros(K)
+            subcarrier_scale_list[0:int(K / 4)] = 0.001 * numpy.random.random_sample(int(K / 4)) + 0.001
+            # subcarrier_scale_list[0:int(K / 4)] = 1
+            subcarrier_scale_list[int(K / 4):int(K / 2)] = 0.1 * numpy.random.random_sample(int(K / 4)) + 0.1
+            subcarrier_scale_list[int(K / 2):3 * int(K / 4)] = 1
+            subcarrier_scale_list[3 * int(K / 4):] = 1
+            subcarrier_scale_list = subcarrier_scale_list[numpy.random.permutation(K)]
             for n in range(n_devices):
                 j_idx = numpy.argmax(w_mat[n])
-                subcarrier_scale_list = numpy.zeros(K)
-                subcarrier_scale_list[0:int(K / 4)] = 0.01 * numpy.random.random_sample(int(K / 4)) + 0.01
-                # subcarrier_scale_list[0:int(K / 4)] = 1
-                subcarrier_scale_list[int(K / 4):int(K / 2)] = 0.2 * numpy.random.random_sample(int(K / 4)) + 0.2
-                subcarrier_scale_list[int(K / 2):3 * int(K / 4)] = 1
-                subcarrier_scale_list[3 * int(K / 4):] = 1
-                subcarrier_scale_list = subcarrier_scale_list[numpy.random.permutation(K)]
                 for k in range(K):
                     h_mat[n, k] = subcarrier_scale_list[k] * h_mat[n, k]
                     h_norm_vec[k] = numpy.linalg.norm(h_mat[n, k])
@@ -760,6 +760,6 @@ if __name__ == '__main__':
                 stored_results[2, i] = results[2, r, i]
 
             out_file_name = home_dir + 'Outputs/ResNet_demo_' + data_name + '_nvar-range_' + str(
-                tau2_list[0]) + '-' + str(tau2_list[-1]) + '_repeat_' + str(r) + '_results.npz'
+                tau2_list[0]) + '-' + str(tau2_list[-1]) + '_repeat_' + str(r+10) + '_results.npz'
             numpy.savez(out_file_name, res=stored_results, obj=stored_objectives)
         plot_results(results, objectives, tau2_list, data_name, legends)

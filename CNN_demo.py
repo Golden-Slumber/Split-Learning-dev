@@ -466,8 +466,13 @@ if __name__ == '__main__':
 
     img_size_list = [32, 32, 16, 16, 16, 16, 16, 16, 16, 16]
 
-    train_flag = False
+    train_flag = True
     if train_flag:
+        # with open('./Resources/EuroSAT_train_set.pkl', 'rb') as f:
+        #     train_set = pickle.load(f)
+        # image, label = train_set[0]
+        # plt.imshow(image)
+        # plt.show()
         EuroSAT_training(args, img_size_list)
     else:
         with open('./Resources/EuroSAT_test_set.pkl', 'rb') as f:

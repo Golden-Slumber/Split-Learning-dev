@@ -3,11 +3,43 @@ import numpy
 import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib.ticker import PercentFormatter
+from matplotlib.font_manager import FontProperties
 from constants import *
 
 home_dir = '../'
 sys.path.append(home_dir)
 
+
+def twinx_plot_results(res, obj, tau2_list, data_name, legends):
+    matplotlib.rcParams['mathtext.fontset'] = 'stix'
+    matplotlib.rcParams['font.family'] = 'STIXGeneral'
+    fig, ax1 = plt.subplots(figsize=(10, 8))
+    ax2 = ax1.twinx()
+
+    line_list = []
+    for i in range(len(legends)):
+        line, = ax1.plot(tau2_list, numpy.median(res[i], axis=0), color=color_list[i], linestyle='-',
+                         marker=marker_list[i],
+                         markerfacecolor='none', ms=7, markeredgewidth=2.5, linewidth=2.5, markevery=1)
+        line_list.append(line)
+        ax2.plot(tau2_list, numpy.median(obj[i], axis=0), color=color_list[i], linestyle='-',
+                         marker=marker_list[i],
+                         markerfacecolor='none', ms=7, markeredgewidth=2.5, linewidth=2.5, markevery=1)
+    plt.legend(line_list, legends, fontsize=25)
+    ax1.set_xticklabels(tau2_list, fontsize=20)
+    ax1.set_xlabel('Noise Variance', fontsize=25)
+    ax1.tick_params(axis="y", labelsize=20)
+    # ax1.set_ylim(0.5, 1)
+    ax1.set_ylabel('Inference Accuracy', fontsize=25)
+    ax2.set_ylabel('MSE', fontsize=25)
+    ax2.set_ylim(0, 280)
+    ax1.yaxis.set_major_formatter(PercentFormatter(1))
+    plt.grid()
+
+    image_name = home_dir + 'Outputs/MLP_demo_versus_noise_' + data_name + '.pdf'
+    fig.savefig(image_name, format='pdf', dpi=1200)
+
+    plt.show()
 
 def plot_results(res, obj, tau2_list, data_name, legends):
     fig = plt.figure(figsize=(10, 8))
@@ -96,4 +128,5 @@ if __name__ == '__main__':
                 results[k, r, tau_idx] = stored_results[k, tau_idx]
                 objectives[k, r, tau_idx] = stored_objectives[k, tau_idx]
 
-    plot_results(results, objectives, tau2_list, data_name, legends)
+    # plot_results(results, objectives, tau2_list, data_name, legends)
+    twinx_plot_results(results, objectives, tau2_list, data_name, legends)

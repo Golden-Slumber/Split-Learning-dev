@@ -89,7 +89,7 @@ class WirelessSplitNet(nn.Module):
             elif self.mode == GRAPH:
                 tmp_indicator_mat, tmp_b_mat, tmp_a_list, mse = graph_based_alternating_optimization_framework(
                     self.w_mat, self.h_mat,
-                    self.tau2, self.P)
+                    self.tau2, self.P, max_iter=20)
                 # print(tmp_indicator_mat)
             # print(tmp_b_mat)
             # print(tmp_a_list)
@@ -428,9 +428,19 @@ if __name__ == '__main__':
     next_layer_neurons = numpy.array(next_layer_neurons_list)
     pre_layer_neurons = numpy.array(pre_layer_neurons_list)
 
-    train_flag = False
+    train_flag = True
     if train_flag:
-        FashionMNIST_training(args, n_devices, next_layer_neurons, pre_layer_neurons)
+        train_loader = DataLoader(datasets.FashionMNIST(root='./Resources/', train=True, download=True,
+                                                        transform=transforms.Compose([transforms.ToTensor(),
+                                                                                      transforms.Normalize((0.1307,),
+                                                                                                           (
+                                                                                                           0.3081,))])),
+                                  batch_size=args.batch_size, shuffle=True, **kwargs)
+        image, label = next(iter(train_loader))
+        plt.imshow(image[1][0], cmap="gray")
+        plt.show()
+        print(label[1])
+        # FashionMNIST_training(args, n_devices, next_layer_neurons, pre_layer_neurons)
     else:
         # load model
         model_state_dict = torch.load('vertically_split_fashionmnist_n_devices_' + str(n_devices) + '.pt')

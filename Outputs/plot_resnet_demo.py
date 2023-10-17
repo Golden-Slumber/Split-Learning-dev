@@ -20,11 +20,11 @@ def plot_results(res, obj, tau2_list, data_name, legends):
     for i in range(len(legends)):
         line, = plt.plot(tau2_list, numpy.median(res[i], axis=0), color=color_list[i], linestyle='-',
                          marker=marker_list[i],
-                         markerfacecolor='none', ms=7, markeredgewidth=2.5, linewidth=2.5, markevery=1)
+                         markerfacecolor='none', ms=9, markeredgewidth=3, linewidth=2.5, markevery=1)
         line_list.append(line)
     plt.legend(line_list, legends, fontsize=25)
-    plt.xticks(tau2_list, fontsize=20)
-    plt.yticks(fontsize=20)
+    plt.xticks(tau2_list, fontsize=22)
+    plt.yticks(fontsize=22)
     plt.xlabel('Noise Variance', fontsize=25)
     plt.ylabel('Inference Accuracy', fontsize=25)
     # plt.xlabel('噪声等级', fontsize=25)
@@ -34,7 +34,7 @@ def plot_results(res, obj, tau2_list, data_name, legends):
     plt.tight_layout()
     plt.grid()
 
-    image_name = home_dir + 'Outputs/CNN_demo_versus_noise_' + data_name + '_accuracy.pdf'
+    image_name = home_dir + 'Outputs/ResNet_demo_versus_noise_' + data_name + '_accuracy.pdf'
     fig.savefig(image_name, format='pdf', dpi=1200)
     plt.show()
 
@@ -46,11 +46,11 @@ def plot_results(res, obj, tau2_list, data_name, legends):
     for i in range(len(legends)):
         line, = plt.plot(tau2_list, numpy.median(obj[i], axis=0), color=color_list[i], linestyle='-',
                          marker=marker_list[i],
-                         markerfacecolor='none', ms=7, markeredgewidth=2.5, linewidth=2.5, markevery=1)
+                         markerfacecolor='none', ms=9, markeredgewidth=3, linewidth=2.5, markevery=1)
         line_list.append(line)
     plt.legend(line_list, legends, fontsize=25)
-    plt.xticks(tau2_list, fontsize=20)
-    plt.yticks(fontsize=20)
+    plt.xticks(tau2_list, fontsize=22)
+    plt.yticks(fontsize=22)
     # plt.xlabel(r"$\sigma^{2}$", fontsize=20)
     plt.xlabel('Noise Variance', fontsize=25)
     plt.ylabel('MSE', fontsize=25)
@@ -58,7 +58,7 @@ def plot_results(res, obj, tau2_list, data_name, legends):
     plt.tight_layout()
     plt.grid()
 
-    image_name = home_dir + 'Outputs/CNN_demo_versus_noise_' + data_name + '_objective.pdf'
+    image_name = home_dir + 'Outputs/ResNet_demo_versus_noise_' + data_name + '_objective.pdf'
     fig.savefig(image_name, format='pdf', dpi=1200)
     plt.show()
 

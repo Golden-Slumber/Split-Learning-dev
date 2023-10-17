@@ -52,11 +52,11 @@ def plot_results(res, obj, tau2_list, data_name, legends):
     for i in range(len(legends)):
         line, = plt.plot(tau2_list, numpy.median(res[i], axis=0), color=color_list[i], linestyle='-',
                          marker=marker_list[i],
-                         markerfacecolor='none', ms=7, markeredgewidth=2.5, linewidth=2.5, markevery=1)
+                         markerfacecolor='none', ms=9, markeredgewidth=3, linewidth=2.5, markevery=1)
         line_list.append(line)
     plt.legend(line_list, legends, fontsize=25)
-    plt.xticks(tau2_list, fontsize=20)
-    plt.yticks(fontsize=20)
+    plt.xticks(tau2_list, fontsize=22)
+    plt.yticks(fontsize=22)
     plt.xlabel('Noise Variance', fontsize=25)
     plt.ylabel('Inference Accuracy', fontsize=25)
     # plt.xlabel('噪声等级', fontsize=25)
@@ -78,11 +78,11 @@ def plot_results(res, obj, tau2_list, data_name, legends):
     for i in range(len(legends)):
         line, = plt.plot(tau2_list, numpy.median(obj[i], axis=0), color=color_list[i], linestyle='-',
                          marker=marker_list[i],
-                         markerfacecolor='none', ms=7, markeredgewidth=2.5, linewidth=2.5, markevery=1)
+                         markerfacecolor='none', ms=9, markeredgewidth=3, linewidth=2.5, markevery=1)
         line_list.append(line)
     plt.legend(line_list, legends, fontsize=25)
-    plt.xticks(tau2_list, fontsize=20)
-    plt.yticks(fontsize=20)
+    plt.xticks(tau2_list, fontsize=22)
+    plt.yticks(fontsize=22)
     # plt.xlabel(r"$\sigma^{2}$", fontsize=20)
     plt.xlabel('Noise Variance', fontsize=25)
     plt.ylabel('MSE', fontsize=25)
@@ -128,5 +128,5 @@ if __name__ == '__main__':
                 results[k, r, tau_idx] = stored_results[k, tau_idx]
                 objectives[k, r, tau_idx] = stored_objectives[k, tau_idx]
 
-    # plot_results(results, objectives, tau2_list, data_name, legends)
-    twinx_plot_results(results, objectives, tau2_list, data_name, legends)
+    plot_results(results, objectives, tau2_list, data_name, legends)
+    # twinx_plot_results(results, objectives, tau2_list, data_name, legends)
